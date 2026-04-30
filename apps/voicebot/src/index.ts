@@ -4,7 +4,7 @@ dotenvConfig({ path: resolve(__dirname, "../../../.env"), override: false });
 
 import * as net from "net";
 import * as ari from "ari-client";
-import type { Channel } from "ari-client";
+import type { AriClient, Channel } from "ari-client";
 import { runTurn, runTurnStream, transcribeAudio } from "./pipeline";
 
 // ── Singleton guard via TCP control port ─────────────────────────────────────
@@ -177,7 +177,7 @@ async function stopPlayback(playbackId: string): Promise<void> {
 }
 
 async function speak(
-  client: ari.AriClient,
+  client: AriClient,
   channel: Channel,
   text: string,
 ): Promise<void> {
@@ -201,7 +201,7 @@ async function speak(
 // ── Recording + ASR ──────────────────────────────────────────────────────────
 
 function recordSegment(
-  client: ari.AriClient,
+  client: AriClient,
   channel: Channel,
   name: string,
   silenceSec: number = RECORD_SILENCE_SEC,
@@ -275,7 +275,7 @@ async function fetchRecording(name: string): Promise<Buffer | null> {
 
 // ── Answer detection ─────────────────────────────────────────────────────────
 
-function waitForAnswer(client: ari.AriClient, channel: Channel): Promise<boolean> {
+function waitForAnswer(client: AriClient, channel: Channel): Promise<boolean> {
   return new Promise((resolve) => {
     const ch = channel as unknown as { state?: string };
     if (ch.state === "Up") { resolve(true); return; }
@@ -346,7 +346,7 @@ async function handleVapiBridgeLeg(channel: Channel, bridgeId: string): Promise<
  *  7. When either party hangs up, clean up bridge and finalize call record.
  */
 async function handleVapiOutbound(
-  client: ari.AriClient,
+  client: AriClient,
   customerChannel: Channel,
   callId: string,
 ): Promise<void> {
@@ -453,7 +453,7 @@ async function handleVapiOutbound(
 
 // ── Main call handler ─────────────────────────────────────────────────────────
 
-async function handleStasis(client: ari.AriClient, channel: Channel, args: string[]) {
+async function handleStasis(client: AriClient, channel: Channel, args: string[]) {
   const direction = args[0] ?? "unknown";
   const arg1 = args[1] ?? "";      // phone (outbound) OR bridgeId (vapi-bridge-leg)
   const arg2 = args[2] ?? "";      // callId (outbound)
@@ -612,12 +612,12 @@ async function main() {
       client.start(appName);
       console.log(`VoiceBot listening Stasis app=${appName}`);
 
-      client.on("StasisStart", (event: { args?: string[] }, channel: ari.Channel) => {
+      client.on("StasisStart", (event: { args?: string[] }, channel: Channel) => {
         console.log(`[VoiceBot] StasisStart channel=${channel.id} args=${JSON.stringify(event.args)}`);
         void handleStasis(client, channel, event.args ?? []);
       });
 
-      client.on("StasisEnd", (_event: unknown, channel: ari.Channel) => {
+      client.on("StasisEnd", (_event: unknown, channel: Channel) => {
         console.log(`[VoiceBot] StasisEnd channel=${channel.id}`);
       });
 
