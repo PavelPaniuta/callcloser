@@ -269,6 +269,36 @@ export class AdminController {
     return this.campaignRunner.get(id);
   }
 
+  // ── Stuck call cleanup ────────────────────────────────────────────────────
+
+  @Post("calls/cleanup-stuck")
+  async cleanupStuck(@Body() body: { olderThanSeconds?: number }) {
+    const threshold = body.olderThanSeconds ?? 120; // default 2 min
+    const cutoff = new Date(Date.now() - threshold * 1000);
+    const result = await prisma.call.updateMany({
+      where: {
+        status: { in: ["RINGING", "QUEUED", "CREATED"] as never[] },
+        createdAt: { lt: cutoff },
+      },
+      data: { status: "FAILED" as never, failureReason: "Timeout — stuck in RINGING/QUEUED" },
+    });
+    return { updated: result.count, cutoff: cutoff.toISOString() };
+  }
+
+  @Get("calls/stuck")
+  async stuckCalls() {
+    const cutoff = new Date(Date.now() - 120_000);
+    return prisma.call.findMany({
+      where: {
+        status: { in: ["RINGING", "QUEUED", "CREATED"] as never[] },
+        createdAt: { lt: cutoff },
+      },
+      include: { contact: true },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+  }
+
   // ── Hot Calls (stop words detected) ──────────────────────────────────────
 
   @Get("hot-calls")

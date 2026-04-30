@@ -115,6 +115,20 @@ export default function AdminPage() {
     setCalls(cl);
   };
 
+  const cleanupStuck = async () => {
+    setBusy(true);
+    try {
+      const r = await api<{ updated: number }>("/api/admin/calls/cleanup-stuck", {
+        method: "POST",
+        body: JSON.stringify({ olderThanSeconds: 120 }),
+      });
+      alert(`Завершено застрявших звонков: ${r.updated}`);
+      await loadAll();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const loadStopWords = async () => {
     try {
       const configs = await api<Array<{ key: string; value: unknown }>>("/api/settings/system-config");
@@ -324,7 +338,16 @@ export default function AdminPage() {
             <option value="INBOUND">INBOUND</option>
           </select>
           <button className="secondary" type="button" onClick={() => void loadAll()}>
-            Обновить
+            🔄 Обновить
+          </button>
+          <button
+            className="danger"
+            type="button"
+            disabled={busy}
+            onClick={() => void cleanupStuck()}
+            title="Завершить все звонки застрявшие в RINGING/QUEUED > 2 минут"
+          >
+            🧹 Очистить застрявшие
           </button>
         </div>
         <div className="table-wrap">

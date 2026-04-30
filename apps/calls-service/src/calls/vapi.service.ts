@@ -54,6 +54,18 @@ export class VapiService {
     return this.loadConfig().then((c) => c !== null);
   }
 
+  /** Normalize to E.164 (+XXXXXXXXXXX). Ukrainian 0XX → +380XX */
+  private normalizePhone(phone: string): string {
+    const digits = phone.replace(/\D/g, "");
+    // Ukraine: starts with 0 and 10 digits → add +38
+    if (digits.startsWith("0") && digits.length === 10) return `+38${digits}`;
+    // Already has country code (38...) → add +
+    if (digits.startsWith("38") && digits.length === 12) return `+${digits}`;
+    // Already E.164 without +
+    if (digits.length >= 10 && digits.length <= 15) return `+${digits}`;
+    return phone; // fallback: return as-is
+  }
+
   async originateCall(
     phone: string,
     callId: string,
@@ -102,11 +114,14 @@ export class VapiService {
       return null;
     }
 
+    const normalizedPhone = this.normalizePhone(phone);
+    this.log.log(`Phone: ${phone} → ${normalizedPhone}`);
+
     const body = {
       ...assistantPayload,
       phoneNumberId: cfg.phoneNumberId,
       customer: {
-        number: phone,
+        number: normalizedPhone,
         numberE164CheckEnabled: false,
       },
       ...(options?.metadata ? { metadata: options.metadata } : {}),
