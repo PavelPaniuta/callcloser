@@ -163,8 +163,8 @@ export default function PhoneBasesPage() {
       <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", mb: 2.5 }}>
         <PermContactCalendarRoundedIcon sx={{ fontSize: 28, color: "primary.main" }} />
         <Box sx={{ flexGrow: 1 }}>
-          <Typography variant="h5" fontWeight={800}>Базы номеров</Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="h5" sx={{ fontWeight: 800 }}>Базы номеров</Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             Загружайте базы контактов и выбирайте их при создании кампании
           </Typography>
         </Box>
@@ -183,7 +183,7 @@ export default function PhoneBasesPage() {
       {!loading && bases.length === 0 && (
         <Paper sx={{ p: 4, textAlign: "center", borderRadius: 3, border: "1px dashed", borderColor: "divider" }}>
           <ContactsRoundedIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
-          <Typography color="text.secondary">Нет баз номеров. Создайте первую!</Typography>
+          <Typography sx={{ color: "text.secondary" }}>Нет баз номеров. Создайте первую!</Typography>
         </Paper>
       )}
 
@@ -194,8 +194,8 @@ export default function PhoneBasesPage() {
               <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
                 <ContactsRoundedIcon sx={{ color: "primary.main", fontSize: 28 }} />
                 <Box sx={{ flexGrow: 1 }}>
-                  <Typography fontWeight={700} fontSize={15}>{b.name}</Typography>
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography sx={{ fontWeight: 700, fontSize: 15 }}>{b.name}</Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
                     {new Date(b.createdAt).toLocaleString("uk-UA")}
                   </Typography>
                 </Box>
@@ -225,7 +225,7 @@ export default function PhoneBasesPage() {
             />
 
             <Box>
-              <Typography variant="body2" color="text.secondary" mb={1}>
+              <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
                 Загрузите CSV/TXT файл или вставьте номера вручную.
                 <br />
                 Поддерживаемые форматы: один номер на строку, или через <b>;</b> / <b>,</b>
@@ -269,7 +269,7 @@ export default function PhoneBasesPage() {
                   size="small"
                 />
                 {preview.length > 0 && (
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
                     Первые: {preview.slice(0, 3).map(l => l.phone).join(", ")}
                     {preview.length > 3 ? ` и ещё ${preview.length - 3}...` : ""}
                   </Typography>
