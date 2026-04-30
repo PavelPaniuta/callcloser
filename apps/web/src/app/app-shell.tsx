@@ -25,11 +25,13 @@ import SettingsSuggestRoundedIcon from "@mui/icons-material/SettingsSuggestRound
 import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import CampaignRoundedIcon from "@mui/icons-material/CampaignRounded";
 import MonitorHeartRoundedIcon from "@mui/icons-material/MonitorHeartRounded";
-import LoginRoundedIcon from "@mui/icons-material/LoginRounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import { AppThemeMode, getAppTheme } from "./theme";
+import { clearToken } from "@/lib/api";
+import { useRouter } from "next/navigation";
 
 const drawerWidth = 272;
 
@@ -43,12 +45,17 @@ const navItems = [
   },
   { href: "/prompts", label: "Промпты", icon: <DescriptionRoundedIcon /> },
   { href: "/campaigns", label: "Кампании", icon: <CampaignRoundedIcon /> },
-  { href: "/login", label: "Вход", icon: <LoginRoundedIcon /> },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+
+  function logout() {
+    clearToken();
+    router.push("/login");
+  }
   const [mode, setMode] = React.useState<AppThemeMode>("dark");
   const toggleDrawer = () => setMobileOpen((v) => !v);
   const appTheme = React.useMemo(() => getAppTheme(mode), [mode]);
@@ -142,6 +149,25 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           );
         })}
       </List>
+
+      <Box sx={{ mt: "auto", pt: 1 }}>
+        <ListItemButton
+          onClick={logout}
+          sx={{
+            borderRadius: 2,
+            border: "1px solid transparent",
+            "&:hover": { bgcolor: "rgba(239,68,68,0.1)", borderColor: "rgba(239,68,68,0.3)" },
+            transition: "all .16s ease",
+          }}
+        >
+          <ListItemIcon sx={{ minWidth: 36, color: "error.light" }}>
+            <LogoutRoundedIcon />
+          </ListItemIcon>
+          <Typography sx={{ fontWeight: 500, color: "error.light" }}>
+            Выйти
+          </Typography>
+        </ListItemButton>
+      </Box>
     </Stack>
   );
 

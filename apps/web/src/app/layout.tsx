@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import AppShell from "./app-shell";
+import LayoutShell from "./layout-shell";
 
 export const metadata: Metadata = {
-  title: "CRM Call Center",
-  description: "Asterisk + AI CRM",
+  title: "CallCloser CRM",
+  description: "AI Voice CRM",
 };
 
 export default function RootLayout({
@@ -15,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body>
-        <AppShell>{children}</AppShell>
+        <LayoutShell>{children}</LayoutShell>
       </body>
     </html>
   );
