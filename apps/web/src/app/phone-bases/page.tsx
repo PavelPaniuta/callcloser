@@ -160,7 +160,7 @@ export default function PhoneBasesPage() {
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" spacing={1.5} mb={2.5}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", mb: 2.5 }}>
         <PermContactCalendarRoundedIcon sx={{ fontSize: 28, color: "primary.main" }} />
         <Box sx={{ flexGrow: 1 }}>
           <Typography variant="h5" fontWeight={800}>Базы номеров</Typography>
@@ -191,7 +191,7 @@ export default function PhoneBasesPage() {
         {bases.map((b) => (
           <Card key={b.id} sx={{ borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
             <CardContent sx={{ py: "12px !important" }}>
-              <Stack direction="row" alignItems="center" spacing={2}>
+              <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
                 <ContactsRoundedIcon sx={{ color: "primary.main", fontSize: 28 }} />
                 <Box sx={{ flexGrow: 1 }}>
                   <Typography fontWeight={700} fontSize={15}>{b.name}</Typography>
@@ -215,7 +215,7 @@ export default function PhoneBasesPage() {
       <Dialog open={dlgOpen} onClose={() => !saving && setDlgOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Новая база номеров</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} mt={0.5}>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
             <TextField
               label="Название базы"
               fullWidth
@@ -262,7 +262,7 @@ export default function PhoneBasesPage() {
             />
 
             {rawText && (
-              <Stack direction="row" spacing={1} alignItems="center">
+              <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
                 <Chip
                   label={`${preview.length} валидных номеров`}
                   color={preview.length > 0 ? "success" : "error"}
