@@ -23,6 +23,12 @@ cd "$APP_DIR"
 echo "Rebuilding gateway..."
 pnpm --filter @crm/gateway build
 
+echo "Rebuilding calls-service..."
+pnpm --filter @crm/calls-service build
+
+echo "Rebuilding voicebot..."
+pnpm --filter @crm/voicebot build
+
 echo "Rebuilding analytics-worker..."
 pnpm --filter @crm/analytics-worker build
 
