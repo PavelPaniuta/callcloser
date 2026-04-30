@@ -415,7 +415,7 @@ export default function CampaignsPage() {
               </Box>
               {phoneBases.length > 0 && (
                 <Box sx={{ gridColumn: { xs: "1 / -1" } }}>
-                  <Stack direction="row" spacing={1} alignItems="flex-end">
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "flex-end" }}>
                     <TextField
                       select
                       label="Загрузить из базы номеров"
