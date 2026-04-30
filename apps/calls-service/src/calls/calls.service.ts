@@ -84,6 +84,17 @@ export class CallsService {
     });
   }
 
+  /**
+   * Той самий логікат що VAPI/Zadarma SIP: UA 0XXXXXXXXX для набору на транк.
+   */
+  private normalizePhoneForZadarmaTrunk(phone: string): string {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.startsWith("380") && digits.length === 12) return `0${digits.slice(3)}`;
+    if (digits.startsWith("0") && digits.length === 10) return digits;
+    if (digits.length >= 10 && digits.length <= 15) return digits;
+    return phone.trim();
+  }
+
   async createOutbound(input: {
     contactId?: string;
     phone: string;
@@ -122,7 +133,8 @@ export class CallsService {
     const useVapiAiBridge = input.engine === "vapi";
     const direction = useVapiAiBridge ? "outbound-vapi" : "outbound";
 
-    const orig = await this.ari.originateOutbound(input.phone, call.id, direction);
+    const dialPhone = this.normalizePhoneForZadarmaTrunk(input.phone);
+    const orig = await this.ari.originateOutbound(dialPhone, call.id, direction);
     if (!orig?.uniqueId) {
       await prisma.call.update({
         where: { id: call.id },
