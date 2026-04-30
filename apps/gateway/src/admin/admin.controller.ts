@@ -273,44 +273,46 @@ export class AdminController {
 
   @Get("hot-calls")
   async hotCalls(@Query("status") status?: string) {
-    const where = status
-      ? { detectedKeywords: { not: null }, reviewStatus: status as never }
-      : { detectedKeywords: { not: null } };
-
-    const analytics = await prisma.callAnalytics.findMany({
-      where,
+    // Use reviewStatus != null as proxy for "has detected keywords"
+    // (analytics-worker sets reviewStatus when keywords are found)
+    const analytics = await (prisma.callAnalytics as unknown as {
+      findMany: (args: unknown) => Promise<Array<Record<string, unknown>>>;
+    }).findMany({
+      where: status
+        ? { reviewStatus: status }
+        : { reviewStatus: { not: null } },
       orderBy: { createdAt: "desc" },
       take: 200,
-      include: {
-        call: {
-          include: { contact: true },
-        },
-      },
+      include: { call: { include: { contact: true } } },
     });
 
-    return analytics.map((a) => ({
-      id: a.id,
-      callId: a.callId,
-      reviewStatus: a.reviewStatus,
-      reviewNote: a.reviewNote,
-      reviewedAt: a.reviewedAt,
-      telegramSent: a.telegramSent,
-      detectedKeywords: a.detectedKeywords,
-      summary: a.summary,
-      transcript: a.transcript,
-      createdAt: a.createdAt,
-      contact: a.call.contact
-        ? { id: a.call.contact.id, name: a.call.contact.name, phone: a.call.contact.phone }
-        : null,
-      callDirection: a.call.direction,
-      callStatus: a.call.status,
-    }));
+    return analytics.map((a) => {
+      const call = a["call"] as Record<string, unknown> | null;
+      const contact = (call?.["contact"] as Record<string, unknown> | null) ?? null;
+      return {
+        id: a["id"],
+        callId: a["callId"],
+        reviewStatus: a["reviewStatus"],
+        reviewNote: a["reviewNote"],
+        reviewedAt: a["reviewedAt"],
+        telegramSent: a["telegramSent"],
+        detectedKeywords: a["detectedKeywords"],
+        summary: a["summary"],
+        transcript: a["transcript"],
+        createdAt: a["createdAt"],
+        contact: contact
+          ? { id: contact["id"], name: contact["name"], phone: contact["phone"] }
+          : null,
+        callDirection: call?.["direction"] ?? null,
+        callStatus: call?.["status"] ?? null,
+      };
+    });
   }
 
   @Get("hot-calls/count")
   async hotCallsCount() {
     const count = await prisma.callAnalytics.count({
-      where: { detectedKeywords: { not: null }, reviewStatus: { in: ["PENDING_REVIEW", "IN_PROGRESS"] } },
+      where: { reviewStatus: { in: ["PENDING_REVIEW", "IN_PROGRESS"] as never[] } },
     });
     return { count };
   }
