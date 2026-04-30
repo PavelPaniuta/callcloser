@@ -116,50 +116,13 @@ export class CallsService {
 
     await this.transition(call.id, CallStatus.QUEUED);
 
-    // Determine engine:
-    // - "vapi"     → VAPI API outbound (VAPI dials via your SIP trunk, handles AI)
-    // - "asterisk" → Asterisk ARI outbound (local OpenAI pipeline)
-    // - not set    → auto: VAPI if configured, else ARI
-    const useVapi =
-      input.engine === "vapi" ||
-      (input.engine == null && (await this.vapi.isConfigured()));
+    // ── Asterisk ARI path (both "asterisk" and "vapi" engines) ─────────────
+    // "vapi" engine: Asterisk dials via Zadarma → on answer bridges to VAPI SIP AI.
+    // "asterisk" engine: Asterisk + local OpenAI pipeline.
+    const useVapiAiBridge = input.engine === "vapi";
+    const direction = useVapiAiBridge ? "outbound-vapi" : "outbound";
 
-    // ── VAPI path ──────────────────────────────────────────────────────────
-    if (useVapi) {
-      let systemPrompt: string | undefined;
-      if (input.promptVersionId) {
-        const promptRow = await prisma.promptVersion.findUnique({
-          where: { id: input.promptVersionId },
-          select: { systemPrompt: true },
-        });
-        systemPrompt = promptRow?.systemPrompt ?? undefined;
-      }
-
-      const vapiResult = await this.vapi.originateCall(
-        input.phone,
-        call.id,
-        { metadata: { crm_call_id: call.id }, systemPrompt },
-      );
-      if (!vapiResult) {
-        await prisma.call.update({
-          where: { id: call.id },
-          data: { status: CallStatus.FAILED, failureReason: "VAPI originate failed" },
-        });
-        return this.get(call.id);
-      }
-      await prisma.call.update({
-        where: { id: call.id },
-        data: {
-          status: CallStatus.RINGING,
-          asteriskUniqueId: vapiResult.callId,
-          startedAt: new Date(),
-        },
-      });
-      return this.get(call.id);
-    }
-
-    // ── Asterisk ARI path ──────────────────────────────────────────────────
-    const orig = await this.ari.originateOutbound(input.phone, call.id);
+    const orig = await this.ari.originateOutbound(input.phone, call.id, direction);
     if (!orig?.uniqueId) {
       await prisma.call.update({
         where: { id: call.id },
