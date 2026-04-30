@@ -9,9 +9,25 @@ function getOpenAI(): OpenAI | null {
   return key ? new OpenAI({ apiKey: key }) : null;
 }
 
+// ── Telegram ──────────────────────────────────────────────────────────────────
+
+async function sendTelegram(text: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+    });
+  } catch (e) {
+    console.warn("[Analytics] Telegram error:", (e as Error).message);
+  }
+}
+
 // ── Stop word config ──────────────────────────────────────────────────────────
-// Loaded from SystemConfig key "analytics.stopWords"
-// Format: [{ word: "не интересно", action: "DNC" | "TAG" | "NOTIFY", tag?: "..." }]
+
 type StopWordRule = {
   word: string;
   action: "DNC" | "TAG" | "NOTIFY";
@@ -85,11 +101,13 @@ function detectStopWords(
   return hits;
 }
 
-// ── Actions on stop words ─────────────────────────────────────────────────────
+// ── Actions + Telegram on stop words ─────────────────────────────────────────
 
 async function applyStopWordActions(
   callId: string,
   contactId: string | null,
+  contactName: string | null,
+  contactPhone: string | null,
   transcript: string,
   rules: StopWordRule[],
 ) {
@@ -100,25 +118,21 @@ async function applyStopWordActions(
 
   for (const hit of hits) {
     const rule = rules.find((r) => r.word.toLowerCase() === hit.word.toLowerCase());
-    if (!rule || !contactId) continue;
+    if (!rule) continue;
 
-    if (rule.action === "DNC") {
-      // Add to DNC list via SystemConfig
+    if (rule.action === "DNC" && contactId) {
       const dncCfg = await prisma.systemConfig.findUnique({ where: { key: "campaign.dnc" } });
       const dncList = (dncCfg?.value as string[] | null) ?? [];
-      const contact = await prisma.contact.findUnique({ where: { id: contactId } });
-      if (contact?.phone && !dncList.includes(contact.phone)) {
+      if (contactPhone && !dncList.includes(contactPhone)) {
         await prisma.systemConfig.upsert({
           where: { key: "campaign.dnc" },
-          create: { key: "campaign.dnc", value: [...dncList, contact.phone] },
-          update: { value: [...dncList, contact.phone] },
+          create: { key: "campaign.dnc", value: [...dncList, contactPhone] },
+          update: { value: [...dncList, contactPhone] },
         });
-        console.log(`[Analytics] DNC: added ${contact.phone} (word: "${hit.word}")`);
       }
     }
 
-    if (rule.action === "TAG" || rule.action === "NOTIFY") {
-      // Log activity on contact
+    if ((rule.action === "TAG" || rule.action === "NOTIFY") && contactId) {
       await prisma.activity.create({
         data: {
           contactId,
@@ -126,9 +140,25 @@ async function applyStopWordActions(
           metadata: { callId, word: hit.word, action: rule.action },
         },
       });
-      console.log(`[Analytics] Activity logged: contact=${contactId} action=${rule.action} word="${hit.word}"`);
     }
   }
+
+  // ── Telegram notification ─────────────────────────────────────────────────
+  const wordList = hits.map((h) => `<b>${h.word}</b> (×${h.count})`).join(", ");
+  const clientInfo = contactName
+    ? `${contactName} | ${contactPhone ?? "?"}`
+    : (contactPhone ?? "Неизвестно");
+
+  const snippet = transcript.slice(0, 300).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const msg =
+    `🚨 <b>Стоп-слово обнаружено!</b>\n\n` +
+    `👤 Клиент: ${clientInfo}\n` +
+    `🔑 Слова: ${wordList}\n` +
+    `📋 Транскрипт:\n<i>${snippet}${transcript.length > 300 ? "..." : ""}</i>`;
+
+  await sendTelegram(msg);
+
   return hits;
 }
 
@@ -141,7 +171,6 @@ async function processCall(callId: string) {
   });
   if (!call) return;
 
-  // Use existing transcript if available, otherwise build a basic one
   const transcript = call.analytics?.transcript ?? [
     `Звонок ${call.id} (${call.direction})`,
     call.contact ? `Контакт: ${call.contact.name ?? ""} ${call.contact.phone}` : "Контакт неизвестен",
@@ -152,9 +181,17 @@ async function processCall(callId: string) {
   const stopWords = await loadStopWords();
   const [report, detectedKeywords] = await Promise.all([
     runLlmReport(transcript),
-    Promise.resolve(applyStopWordActions(callId, call.contactId ?? null, transcript, stopWords)),
+    applyStopWordActions(
+      callId,
+      call.contactId ?? null,
+      call.contact?.name ?? null,
+      call.contact?.phone ?? null,
+      transcript,
+      stopWords,
+    ),
   ]);
-  const keywords = await detectedKeywords;
+
+  const hasHits = detectedKeywords.length > 0;
 
   await prisma.callAnalytics.upsert({
     where: { callId: call.id },
@@ -163,12 +200,16 @@ async function processCall(callId: string) {
       transcript: call.analytics?.transcript ?? transcript,
       summary: report.summary,
       improvements: report.improvements,
-      detectedKeywords: keywords.length > 0 ? keywords : undefined,
+      detectedKeywords: hasHits ? detectedKeywords : undefined,
+      reviewStatus: hasHits ? "PENDING_REVIEW" : undefined,
+      telegramSent: hasHits,
     },
     update: {
       summary: report.summary,
       improvements: report.improvements,
-      detectedKeywords: keywords.length > 0 ? keywords : undefined,
+      detectedKeywords: hasHits ? detectedKeywords : undefined,
+      reviewStatus: hasHits ? "PENDING_REVIEW" : undefined,
+      telegramSent: hasHits,
     },
   });
 
@@ -182,7 +223,7 @@ async function processCall(callId: string) {
     },
   });
 
-  console.log(`[Analytics] call=${callId} done: summary="${report.summary.slice(0, 60)}..."`);
+  console.log(`[Analytics] call=${callId} done. keywords=${detectedKeywords.length}`);
 }
 
 // ── Worker ────────────────────────────────────────────────────────────────────

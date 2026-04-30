@@ -30,8 +30,9 @@ import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import { AppThemeMode, getAppTheme } from "./theme";
-import { clearToken } from "@/lib/api";
+import { clearToken, api } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import LocalFireDepartmentRoundedIcon from "@mui/icons-material/LocalFireDepartmentRounded";
 
 const drawerWidth = 272;
 
@@ -45,12 +46,26 @@ const navItems = [
   },
   { href: "/prompts", label: "Промпты", icon: <DescriptionRoundedIcon /> },
   { href: "/campaigns", label: "Кампании", icon: <CampaignRoundedIcon /> },
+  { href: "/hot-calls", label: "Горячие звонки", icon: <LocalFireDepartmentRoundedIcon />, hot: true },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const [hotCount, setHotCount] = React.useState(0);
+
+  React.useEffect(() => {
+    api<{ count: number }>("/api/admin/hot-calls/count")
+      .then((d) => setHotCount(d.count))
+      .catch(() => {});
+    const t = setInterval(() => {
+      api<{ count: number }>("/api/admin/hot-calls/count")
+        .then((d) => setHotCount(d.count))
+        .catch(() => {});
+    }, 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   function logout() {
     clearToken();
@@ -111,6 +126,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           const active =
             pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href));
+          const isHot = (item as { hot?: boolean }).hot;
+          const showBadge = isHot && hotCount > 0;
           return (
             <ListItemButton
               key={item.href}
@@ -121,30 +138,40 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 mb: 0.5,
                 borderRadius: 2,
                 border: "1px solid",
-                borderColor: active ? "primary.main" : "transparent",
+                borderColor: active ? (isHot ? "#ef4444" : "primary.main") : "transparent",
                 bgcolor: active
-                  ? mode === "dark"
-                    ? "rgba(81,106,216,0.2)"
-                    : "rgba(79,111,255,0.12)"
+                  ? isHot
+                    ? "rgba(239,68,68,0.15)"
+                    : mode === "dark" ? "rgba(81,106,216,0.2)" : "rgba(79,111,255,0.12)"
                   : "transparent",
                 "&:hover": {
-                  bgcolor: mode === "dark" ? "rgba(81,106,216,0.16)" : "rgba(79,111,255,0.09)",
+                  bgcolor: isHot ? "rgba(239,68,68,0.1)" : mode === "dark" ? "rgba(81,106,216,0.16)" : "rgba(79,111,255,0.09)",
                   transform: "translateX(2px)",
                 },
                 transition: "all .16s ease",
               }}
             >
-              <ListItemIcon sx={{ minWidth: 36, color: active ? "primary.light" : "text.secondary" }}>
+              <ListItemIcon sx={{ minWidth: 36, color: active ? (isHot ? "#f87171" : "primary.light") : isHot ? "#f87171" : "text.secondary" }}>
                 {item.icon}
               </ListItemIcon>
               <Typography
                 sx={{
                   fontWeight: active ? 700 : 500,
-                  color: active ? "text.primary" : "text.secondary",
+                  color: active ? "text.primary" : isHot ? "#f87171" : "text.secondary",
+                  flexGrow: 1,
                 }}
               >
                 {item.label}
               </Typography>
+              {showBadge && (
+                <Box sx={{
+                  background: "#ef4444", color: "#fff",
+                  borderRadius: 10, fontSize: 11, fontWeight: 700,
+                  px: 0.8, py: 0.1, minWidth: 20, textAlign: "center",
+                }}>
+                  {hotCount}
+                </Box>
+              )}
             </ListItemButton>
           );
         })}

@@ -1,5 +1,5 @@
 import { HttpService } from "@nestjs/axios";
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Put, Query } from "@nestjs/common";
 import { prisma } from "@crm/db";
 import { firstValueFrom } from "rxjs";
 import { CampaignRunnerService } from "./campaign-runner.service";
@@ -267,5 +267,66 @@ export class AdminController {
   @Get("campaigns/:id")
   campaign(@Param("id") id: string) {
     return this.campaignRunner.get(id);
+  }
+
+  // ── Hot Calls (stop words detected) ──────────────────────────────────────
+
+  @Get("hot-calls")
+  async hotCalls(@Query("status") status?: string) {
+    const where = status
+      ? { detectedKeywords: { not: null }, reviewStatus: status as never }
+      : { detectedKeywords: { not: null } };
+
+    const analytics = await prisma.callAnalytics.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: {
+        call: {
+          include: { contact: true },
+        },
+      },
+    });
+
+    return analytics.map((a) => ({
+      id: a.id,
+      callId: a.callId,
+      reviewStatus: a.reviewStatus,
+      reviewNote: a.reviewNote,
+      reviewedAt: a.reviewedAt,
+      telegramSent: a.telegramSent,
+      detectedKeywords: a.detectedKeywords,
+      summary: a.summary,
+      transcript: a.transcript,
+      createdAt: a.createdAt,
+      contact: a.call.contact
+        ? { id: a.call.contact.id, name: a.call.contact.name, phone: a.call.contact.phone }
+        : null,
+      callDirection: a.call.direction,
+      callStatus: a.call.status,
+    }));
+  }
+
+  @Get("hot-calls/count")
+  async hotCallsCount() {
+    const count = await prisma.callAnalytics.count({
+      where: { detectedKeywords: { not: null }, reviewStatus: { in: ["PENDING_REVIEW", "IN_PROGRESS"] } },
+    });
+    return { count };
+  }
+
+  @Put("hot-calls/:id/status")
+  async updateHotCallStatus(
+    @Param("id") id: string,
+    @Body() body: { reviewStatus: string; reviewNote?: string },
+  ) {
+    return prisma.callAnalytics.update({
+      where: { id },
+      data: {
+        reviewStatus: body.reviewStatus as never,
+        reviewNote: body.reviewNote,
+        reviewedAt: ["REVIEWED", "CLOSED"].includes(body.reviewStatus) ? new Date() : undefined,
+      },
+    });
   }
 }
