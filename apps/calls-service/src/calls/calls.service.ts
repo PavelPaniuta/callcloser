@@ -116,50 +116,16 @@ export class CallsService {
 
     await this.transition(call.id, CallStatus.QUEUED);
 
-    // Determine which engine to use:
-    // - explicit "vapi"     → always VAPI
-    // - explicit "asterisk" → always ARI
-    // - not set             → auto: VAPI if configured, else ARI (legacy behaviour)
-    const useVapi =
-      input.engine === "vapi" ||
-      (input.engine == null && (await this.vapi.isConfigured()));
+    // ── Asterisk ARI path (both "asterisk" and "vapi" engines) ─────────────
+    // "vapi" engine: Asterisk dials the customer via Zadarma SIP trunk,
+    //   then the voicebot bridges the answered call to VAPI's SIP endpoint.
+    //   VAPI provides the AI conversation; Asterisk provides reliable PSTN routing.
+    // "asterisk" engine: Asterisk + local OpenAI pipeline (voicebot handles AI).
+    const useVapiAiBridge = input.engine === "vapi";
+    const direction = useVapiAiBridge ? "outbound-vapi" : "outbound";
+    const extraArgs = useVapiAiBridge && input.promptVersionId ? [input.promptVersionId] : [];
 
-    // ── VAPI path ──────────────────────────────────────────────────────────
-    if (useVapi) {
-      let systemPrompt: string | undefined;
-      if (input.promptVersionId) {
-        const promptRow = await prisma.promptVersion.findUnique({
-          where: { id: input.promptVersionId },
-          select: { systemPrompt: true },
-        });
-        systemPrompt = promptRow?.systemPrompt ?? undefined;
-      }
-
-      const vapiResult = await this.vapi.originateCall(
-        input.phone,
-        call.id,
-        { metadata: { crm_call_id: call.id }, systemPrompt },
-      );
-      if (!vapiResult) {
-        await prisma.call.update({
-          where: { id: call.id },
-          data: { status: CallStatus.FAILED, failureReason: "VAPI originate failed" },
-        });
-        return this.get(call.id);
-      }
-      await prisma.call.update({
-        where: { id: call.id },
-        data: {
-          status: CallStatus.RINGING,
-          asteriskUniqueId: vapiResult.callId,
-          startedAt: new Date(),
-        },
-      });
-      return this.get(call.id);
-    }
-
-    // ── Asterisk ARI path ──────────────────────────────────────────────────
-    const orig = await this.ari.originateOutbound(input.phone, call.id);
+    const orig = await this.ari.originateOutbound(input.phone, call.id, direction, extraArgs);
     if (!orig?.uniqueId) {
       await prisma.call.update({
         where: { id: call.id },

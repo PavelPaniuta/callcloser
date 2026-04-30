@@ -50,16 +50,19 @@ export class AriService implements OnModuleDestroy {
   async originateOutbound(
     phone: string,
     callId: string,
+    direction: string = "outbound",
+    extraArgs: string[] = [],
   ): Promise<{ uniqueId?: string; channelId?: string } | null> {
     const client = await this.getClient();
     if (!client) return null;
 
     const endpoint = await this.resolveEndpoint(phone);
     try {
+      const appArgs = [direction, phone, callId, ...extraArgs].join(",");
       const channel = await client.channels.originate({
         endpoint,
         app: this.app,
-        appArgs: ["outbound", phone, callId].join(","),
+        appArgs,
         callerId: `CRM AI <${phone}>`,
       });
       return {
