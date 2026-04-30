@@ -589,11 +589,21 @@ async function main() {
     return;
   }
 
-  // Singleton guard: kill previous instance BEFORE connecting to ARI.
-  await ensureSingleton(() => {
-    console.log("[VoiceBot] Shutdown by new instance");
-    process.exit(0);
-  });
+  // Singleton guard is for local dev (e.g. Windows): second `node dist/index.js`
+  // kills the first. Under PM2 there must be only one process — the guard can
+  // race with restarts and drop the ARI WebSocket. Disable on VPS:
+  //   VOICEBOT_DISABLE_SINGLETON=1 (set in ecosystem.config.js for voicebot)
+  const singletonDisabled =
+    process.env.VOICEBOT_DISABLE_SINGLETON === "1" ||
+    process.env.VOICEBOT_DISABLE_SINGLETON === "true";
+  if (!singletonDisabled) {
+    await ensureSingleton(() => {
+      console.log("[VoiceBot] Shutdown by new instance");
+      process.exit(0);
+    });
+  } else {
+    console.log("[VoiceBot] Singleton guard disabled (VOICEBOT_DISABLE_SINGLETON)");
+  }
 
   // Auto-reconnect loop: reconnects after Asterisk restarts or connection drops.
   while (true) {
@@ -613,11 +623,25 @@ async function main() {
 
       // Block until the ARI connection drops
       await new Promise<void>((_resolve, reject) => {
-        (client as unknown as { on: (e: string, cb: (err?: unknown) => void) => void })
-          .on("error", (err) => reject(err ?? new Error("ARI error")));
-        // ari-client fires "close" on its internal WebSocket
-        (client as unknown as { ws?: { on: (e: string, cb: () => void) => void } })
-          .ws?.on("close", () => reject(new Error("ARI WebSocket closed")));
+        const c = client as unknown as {
+          on: (e: string, cb: (err?: unknown) => void) => void;
+          ws?: { on: (e: string, cb: () => void) => void };
+        };
+        c.on("error", (err) => reject(err ?? new Error("ARI error")));
+        // ws may not exist immediately after connect; attach close when ready
+        let attachAttempts = 0;
+        const attachWsClose = () => {
+          if (c.ws?.on) {
+            c.ws.on("close", () => reject(new Error("ARI WebSocket closed")));
+            return;
+          }
+          if (++attachAttempts > 50) {
+            console.warn("[VoiceBot] ARI internal WebSocket not exposed; only 'error' will trigger reconnect");
+            return;
+          }
+          setTimeout(attachWsClose, 100);
+        };
+        setImmediate(attachWsClose);
       });
     } catch (err) {
       console.warn(`[VoiceBot] ARI disconnected: ${(err as Error).message}. Reconnecting in 3s...`);

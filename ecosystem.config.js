@@ -60,6 +60,10 @@ module.exports = {
       script: "node",
       args: "dist/index.js",
       env_file: "/opt/callcloser/.env",
+      env: {
+        // PM2 already runs a single instance; TCP singleton would kill peer on restart
+        VOICEBOT_DISABLE_SINGLETON: "1",
+      },
       max_memory_restart: "512M",
       restart_delay: 5000,
       watch: false,
