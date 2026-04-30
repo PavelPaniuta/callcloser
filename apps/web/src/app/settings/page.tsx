@@ -1,560 +1,461 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
-type IntegrationType = "SIP" | "VAPI" | "ASR" | "LLM" | "TTS";
-type IntegrationStatus = "ACTIVE" | "INACTIVE";
-
-type Provider = {
-  id: string;
-  name: string;
-  type: IntegrationType;
-  endpointUrl: string | null;
-  status: IntegrationStatus;
-  secrets: Array<{ keyName: string; maskedValue: string; version: number }>;
-};
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type SipTrunk = {
   id: string;
   endpointName: string;
   host: string;
   port: number;
+  username: string | null;
   isDefault: boolean;
+  providerId: string;
 };
 
-type RoutingRule = {
-  id: string;
-  direction: "INBOUND" | "OUTBOUND";
-  matchExpr: string;
-  action: "VOICEBOT" | "QUEUE" | "TRANSFER";
-  target: string;
-  priority: number;
+type VapiConfig = {
+  assistantId: string;
+  phoneNumberId: string;
+  webhookSecret: string;
+  apiKeySet: boolean;
 };
 
-type Revision = { id: string; status: string; createdAt: string };
-type VapiConfig = { assistantId: string; phoneNumberId: string; webhookSecret: string; apiKeySet: boolean };
+type Tab = "sip" | "vapi" | "security";
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [trunks, setTrunks] = useState<SipTrunk[]>([]);
-  const [rules, setRules] = useState<RoutingRule[]>([]);
-  const [revisions, setRevisions] = useState<Revision[]>([]);
-  const [err, setErr] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
-  const [vapiConfig, setVapiConfig] = useState<VapiConfig>({ assistantId: "", phoneNumberId: "", webhookSecret: "", apiKeySet: false });
-  const [vapiForm, setVapiForm] = useState({ apiKey: "", assistantId: "", phoneNumberId: "", webhookSecret: "" });
+  const [tab, setTab] = useState<Tab>("sip");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const [providerForm, setProviderForm] = useState({
-    name: "",
-    type: "SIP" as IntegrationType,
-    endpointUrl: "",
-    secret: "",
-  });
-
-  const [sipForm, setSipForm] = useState({
-    providerId: "",
-    endpointName: "trunk-main",
-    host: "",
-    port: 5060,
-  });
-
-  const [ruleForm, setRuleForm] = useState({
-    direction: "INBOUND" as "INBOUND" | "OUTBOUND",
-    matchExpr: "^\\+",
-    action: "VOICEBOT" as "VOICEBOT" | "QUEUE" | "TRANSFER",
-    target: "default",
-    priority: 100,
-  });
-
-  const sipProviders = useMemo(
-    () => providers.filter((p) => p.type === "SIP"),
-    [providers],
-  );
-
-  async function reload() {
-    setErr(null);
-    const [p, t, r, rev, vc] = await Promise.all([
-      api<Provider[]>("/api/settings/integrations"),
-      api<SipTrunk[]>("/api/settings/sip-trunks"),
-      api<RoutingRule[]>("/api/settings/routing-rules"),
-      api<Revision[]>("/api/settings/revisions"),
-      api<VapiConfig>("/api/settings/vapi/config"),
-    ]);
-    setProviders(p);
-    setTrunks(t);
-    setRules(r);
-    setRevisions(rev);
-    setVapiConfig(vc);
-    setVapiForm((f) => ({
-      ...f,
-      assistantId: vc.assistantId,
-      phoneNumberId: vc.phoneNumberId,
-      webhookSecret: vc.webhookSecret,
-    }));
-  }
-
-  async function saveVapiConfig(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    try {
-      const saved = await api<VapiConfig>("/api/settings/vapi/config", {
-        method: "POST",
-        body: JSON.stringify(vapiForm),
-      });
-      setVapiConfig(saved);
-      setVapiForm((f) => ({ ...f, apiKey: "" })); // clear key field after save
-      setInfo("VAPI конфиг сохранён");
-    } catch (e) { setErr(String((e as Error).message)); }
-  }
-
-  async function testVapi() {
-    setErr(null);
-    try {
-      const r = await api<{ ok: boolean; details: string }>("/api/settings/vapi/test", { method: "POST" });
-      setInfo(`VAPI test: ${r.ok ? "✓" : "✗"} ${r.details}`);
-    } catch (e) { setErr(String((e as Error).message)); }
-  }
-
-  useEffect(() => {
-    void reload().catch((e) => setErr(String(e.message)));
-  }, []);
-
-  async function createProvider(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    try {
-      await api("/api/settings/integrations", {
-        method: "POST",
-        body: JSON.stringify({
-          name: providerForm.name,
-          type: providerForm.type,
-          endpointUrl: providerForm.endpointUrl || undefined,
-          secret: providerForm.secret || undefined,
-        }),
-      });
-      setInfo("Интеграция сохранена");
-      setProviderForm({ name: "", type: "SIP", endpointUrl: "", secret: "" });
-      await reload();
-    } catch (e) {
-      setErr(String((e as Error).message));
-    }
-  }
-
-  async function saveTrunk(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    try {
-      await api("/api/settings/sip-trunks", {
-        method: "POST",
-        body: JSON.stringify({ ...sipForm, isDefault: true }),
-      });
-      setInfo("SIP trunk сохранен");
-      await reload();
-    } catch (e) {
-      setErr(String((e as Error).message));
-    }
-  }
-
-  async function saveRule(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    try {
-      await api("/api/settings/routing-rules", {
-        method: "POST",
-        body: JSON.stringify(ruleForm),
-      });
-      setInfo("Routing правило сохранено");
-      await reload();
-    } catch (e) {
-      setErr(String((e as Error).message));
-    }
-  }
-
-  async function activateProvider(id: string) {
-    await api(`/api/settings/integrations/${id}/activate`, { method: "POST" });
-    setInfo("Активировано");
-    await reload();
-  }
-
-  async function deleteProvider(id: string) {
-    if (!confirm("Удалить интеграцию? Все связанные trunk и секреты тоже удалятся.")) return;
-    await api(`/api/settings/integrations/${id}`, { method: "DELETE" });
-    setInfo("Интеграция удалена");
-    await reload();
-  }
-
-  async function testProvider(id: string) {
-    const r = await api<{ ok: boolean; details?: string }>(
-      `/api/settings/integrations/${id}/test`,
-      { method: "POST" },
-    );
-    setInfo(`${r.ok ? "OK" : "FAIL"}: ${r.details ?? ""}`);
-  }
-
-  async function applyConfig() {
-    await api("/api/settings/config/apply", { method: "POST" });
-    setInfo("Ревизия применена");
-    await reload();
-  }
-
-  async function rollback(id: string) {
-    await api(`/api/settings/config/rollback/${id}`, { method: "POST" });
-    setInfo("Rollback выполнен");
-    await reload();
-  }
-
-  async function deleteTrunk(id: string) {
-    if (!confirm("Удалить SIP trunk?")) return;
-    await api(`/api/settings/sip-trunks/${id}`, { method: "DELETE" });
-    setInfo("SIP trunk удален");
-    await reload();
-  }
-
-  async function deleteRule(id: string) {
-    if (!confirm("Удалить routing rule?")) return;
-    await api(`/api/settings/routing-rules/${id}`, { method: "DELETE" });
-    setInfo("Routing rule удален");
-    await reload();
+  function notify(ok: boolean, text: string) {
+    setMsg({ ok, text });
+    setTimeout(() => setMsg(null), 4000);
   }
 
   return (
     <main className="stack">
       <div className="page-header">
         <div>
-          <h1 className="page-title">SIP и интеграции</h1>
-          <p className="page-subtitle">Единый центр настройки телефонии, AI-провайдеров и роутинга.</p>
+          <h1 className="page-title">⚙️ Настройки</h1>
+          <p className="page-subtitle">SIP-телефония, VAPI и безопасность аккаунта.</p>
         </div>
-        <button onClick={() => void applyConfig()}>Apply config</button>
       </div>
 
-      {err && <div className="card muted">{err}</div>}
-      {info && <div className="card muted">{info}</div>}
-
-      <section className="grid kpi-grid">
-        <article className="card kpi-card">
-          <h3>Интеграций</h3>
-          <div className="kpi-value">{providers.length}</div>
-        </article>
-        <article className="card kpi-card">
-          <h3>Активных SIP trunk</h3>
-          <div className="kpi-value">{trunks.filter((t) => t.isDefault).length}</div>
-        </article>
-        <article className="card kpi-card">
-          <h3>Routing rules</h3>
-          <div className="kpi-value">{rules.length}</div>
-        </article>
-        <article className="card kpi-card">
-          <h3>Ревизии</h3>
-          <div className="kpi-value">{revisions.length}</div>
-        </article>
-      </section>
-
-      {/* ── VAPI ──────────────────────────────────────────────────────────── */}
-      <section className="card stack">
-        <div className="page-header" style={{ marginBottom: 0 }}>
-          <div>
-            <h2 className="section-title" style={{ margin: 0 }}>VAPI AI Voice</h2>
-            <p className="muted" style={{ margin: "4px 0 0" }}>
-              Исходящие звонки через VAPI (vapi.ai). Если настроен — Asterisk не используется.
-            </p>
-          </div>
-          <div className="row">
-            <span className={vapiConfig.apiKeySet ? "badge ok" : "badge warn"}>
-              {vapiConfig.apiKeySet ? "API Key ✓" : "Не настроен"}
-            </span>
-            <button className="secondary" type="button" onClick={() => void testVapi()}>Test</button>
-          </div>
+      {msg && (
+        <div style={{
+          padding: "10px 16px", borderRadius: 8, fontSize: 14,
+          background: msg.ok ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+          border: `1px solid ${msg.ok ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"}`,
+          color: msg.ok ? "#4ade80" : "#f87171",
+        }}>
+          {msg.ok ? "✅ " : "❌ "}{msg.text}
         </div>
-        <form onSubmit={saveVapiConfig} className="form-grid">
-          <label>
-            API Key {vapiConfig.apiKeySet && <span className="muted">(уже сохранён — введи новый чтобы обновить)</span>}
-            <input
-              type="password"
-              placeholder={vapiConfig.apiKeySet ? "••••••••••••" : "sk-..."}
-              value={vapiForm.apiKey}
-              onChange={(e) => setVapiForm((v) => ({ ...v, apiKey: e.target.value }))}
-            />
-          </label>
-          <label>
-            Assistant ID
-            <input
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              value={vapiForm.assistantId}
-              onChange={(e) => setVapiForm((v) => ({ ...v, assistantId: e.target.value }))}
-            />
-          </label>
-          <label>
-            Phone Number ID <span className="muted">(номер или SIP транк в VAPI)</span>
-            <input
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              value={vapiForm.phoneNumberId}
-              onChange={(e) => setVapiForm((v) => ({ ...v, phoneNumberId: e.target.value }))}
-            />
-          </label>
-          <label>
-            Webhook Secret <span className="muted">(опционально)</span>
-            <input
-              placeholder="my-secret"
-              value={vapiForm.webhookSecret}
-              onChange={(e) => setVapiForm((v) => ({ ...v, webhookSecret: e.target.value }))}
-            />
-          </label>
-          <div style={{ display: "flex", alignItems: "end", gap: 8, gridColumn: "1 / -1" }}>
-            <button type="submit">Сохранить</button>
-            <span className="muted" style={{ fontSize: 12 }}>
-              Webhook URL для VAPI: <code>http://&lt;ваш_хост&gt;:3012/webhooks/vapi</code>
-            </span>
-          </div>
-        </form>
-      </section>
+      )}
 
-      <section className="card stack">
-        <h2 className="section-title">Новая интеграция</h2>
-        <form onSubmit={createProvider} className="form-grid">
-          <label>
-            Название
-            <input value={providerForm.name} onChange={(e) => setProviderForm((v) => ({ ...v, name: e.target.value }))} />
-          </label>
-          <label>
-            Тип
-            <select value={providerForm.type} onChange={(e) => setProviderForm((v) => ({ ...v, type: e.target.value as IntegrationType }))}>
-              <option value="SIP">SIP</option>
-              <option value="VAPI">VAPI</option>
-              <option value="ASR">ASR</option>
-              <option value="LLM">LLM</option>
-              <option value="TTS">TTS</option>
-            </select>
-          </label>
-          <label>
-            Endpoint URL
-            <input value={providerForm.endpointUrl} onChange={(e) => setProviderForm((v) => ({ ...v, endpointUrl: e.target.value }))} />
-          </label>
-          <label>
-            Secret/API key
-            <input value={providerForm.secret} onChange={(e) => setProviderForm((v) => ({ ...v, secret: e.target.value }))} />
-          </label>
-          <div style={{ display: "flex", alignItems: "end" }}>
-            <button type="submit">Сохранить</button>
-          </div>
-        </form>
-      </section>
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 0 }}>
+        {([
+          { key: "sip", label: "📞 SIP транки" },
+          { key: "vapi", label: "🤖 VAPI AI" },
+          { key: "security", label: "🔒 Безопасность" },
+        ] as { key: Tab; label: string }[]).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            style={{
+              background: "none", border: "none",
+              borderBottom: tab === t.key ? "2px solid #3b82f6" : "2px solid transparent",
+              borderRadius: 0, padding: "10px 16px", cursor: "pointer",
+              fontSize: 14, fontWeight: tab === t.key ? 600 : 400,
+              color: tab === t.key ? "#60a5fa" : "#888",
+              marginBottom: -1,
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      <section className="card">
-        <h2 className="section-title">Интеграции</h2>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Имя</th>
-                <th>Тип</th>
-                <th>Статус</th>
-                <th>Endpoint</th>
-                <th>Секреты</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {providers.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.name}</td>
-                  <td>{p.type}</td>
-                  <td><span className={p.status === "ACTIVE" ? "badge ok" : "badge warn"}>{p.status}</span></td>
-                  <td>{p.endpointUrl ?? "-"}</td>
-                  <td>{p.secrets.map((s) => `${s.keyName}:${s.maskedValue}`).join(", ") || "-"}</td>
-                  <td className="row">
-                    <button className="secondary" onClick={() => void testProvider(p.id)}>Test</button>
-                    <button onClick={() => void activateProvider(p.id)}>Activate</button>
-                    <button className="danger" onClick={() => void deleteProvider(p.id)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-              {providers.length === 0 && (
-                <tr><td colSpan={6} className="muted">Нет интеграций</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="card stack">
-        <h2 className="section-title">SIP trunk</h2>
-        <form className="form-grid" onSubmit={saveTrunk}>
-          <label>
-            SIP provider
-            <select value={sipForm.providerId} onChange={(e) => setSipForm((v) => ({ ...v, providerId: e.target.value }))}>
-              <option value="">Выбери</option>
-              {sipProviders.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-            </select>
-          </label>
-          <label>
-            Endpoint
-            <input value={sipForm.endpointName} onChange={(e) => setSipForm((v) => ({ ...v, endpointName: e.target.value }))} />
-          </label>
-          <label>
-            Host
-            <input value={sipForm.host} onChange={(e) => setSipForm((v) => ({ ...v, host: e.target.value }))} />
-          </label>
-          <label>
-            Port
-            <input type="number" value={sipForm.port} onChange={(e) => setSipForm((v) => ({ ...v, port: Number(e.target.value) }))} />
-          </label>
-          <div style={{ display: "flex", alignItems: "end" }}><button type="submit">Сохранить trunk</button></div>
-        </form>
-
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Endpoint</th><th>Host</th><th>Port</th><th>Default</th><th>Действия</th></tr></thead>
-            <tbody>
-              {trunks.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.endpointName}</td>
-                  <td>{t.host}</td>
-                  <td>{t.port}</td>
-                  <td>{t.isDefault ? "Да" : "Нет"}</td>
-                  <td><button className="danger" onClick={() => void deleteTrunk(t.id)}>Delete</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="card stack">
-        <h2 className="section-title">Routing rules</h2>
-        <form className="form-grid" onSubmit={saveRule}>
-          <label>
-            Direction
-            <select value={ruleForm.direction} onChange={(e) => setRuleForm((v) => ({ ...v, direction: e.target.value as "INBOUND" | "OUTBOUND" }))}>
-              <option value="INBOUND">INBOUND</option>
-              <option value="OUTBOUND">OUTBOUND</option>
-            </select>
-          </label>
-          <label>
-            Match expr
-            <input value={ruleForm.matchExpr} onChange={(e) => setRuleForm((v) => ({ ...v, matchExpr: e.target.value }))} />
-          </label>
-          <label>
-            Action
-            <select value={ruleForm.action} onChange={(e) => setRuleForm((v) => ({ ...v, action: e.target.value as "VOICEBOT" | "QUEUE" | "TRANSFER" }))}>
-              <option value="VOICEBOT">VOICEBOT</option>
-              <option value="QUEUE">QUEUE</option>
-              <option value="TRANSFER">TRANSFER</option>
-            </select>
-          </label>
-          <label>
-            Target
-            <input value={ruleForm.target} onChange={(e) => setRuleForm((v) => ({ ...v, target: e.target.value }))} />
-          </label>
-          <label>
-            Priority
-            <input type="number" value={ruleForm.priority} onChange={(e) => setRuleForm((v) => ({ ...v, priority: Number(e.target.value) }))} />
-          </label>
-          <div style={{ display: "flex", alignItems: "end" }}><button type="submit">Добавить rule</button></div>
-        </form>
-
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Dir</th><th>Match</th><th>Action</th><th>Target</th><th>Priority</th><th>Действия</th></tr></thead>
-            <tbody>
-              {rules.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.direction}</td>
-                  <td>{r.matchExpr}</td>
-                  <td>{r.action}</td>
-                  <td>{r.target}</td>
-                  <td>{r.priority}</td>
-                  <td><button className="danger" onClick={() => void deleteRule(r.id)}>Delete</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <ChangePasswordSection />
-
-      <section className="card">
-        <h2 className="section-title">Config revisions</h2>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>ID</th><th>Статус</th><th>Дата</th><th></th></tr></thead>
-            <tbody>
-              {revisions.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.id.slice(0, 10)}...</td>
-                  <td>{r.status}</td>
-                  <td>{new Date(r.createdAt).toLocaleString()}</td>
-                  <td><button className="secondary" onClick={() => void rollback(r.id)}>Rollback</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {tab === "sip"      && <SipSection notify={notify} />}
+      {tab === "vapi"     && <VapiSection notify={notify} />}
+      {tab === "security" && <SecuritySection notify={notify} />}
     </main>
   );
 }
 
-function ChangePasswordSection() {
+// ── SIP Section ───────────────────────────────────────────────────────────────
+
+function SipSection({ notify }: { notify: (ok: boolean, text: string) => void }) {
+  const [trunks, setTrunks] = useState<SipTrunk[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    host: "",
+    port: 5060,
+    username: "",
+    password: "",
+  });
+
+  async function load() {
+    setLoading(true);
+    try {
+      const t = await api<SipTrunk[]>("/api/settings/sip-trunks");
+      setTrunks(t);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      // Step 1: create integration provider
+      const provider = await api<{ id: string }>("/api/settings/integrations", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name,
+          type: "SIP",
+          endpointUrl: `sip:${form.host}:${form.port}`,
+          secret: form.password || undefined,
+        }),
+      });
+
+      // Step 2: create SIP trunk linked to provider
+      await api("/api/settings/sip-trunks", {
+        method: "POST",
+        body: JSON.stringify({
+          providerId: provider.id,
+          endpointName: `trunk-${form.name.toLowerCase().replace(/\s+/g, "-")}`,
+          host: form.host,
+          port: form.port,
+          username: form.username || undefined,
+          isDefault: trunks.length === 0,
+        }),
+      });
+
+      notify(true, `SIP транк "${form.name}" добавлен`);
+      setForm({ name: "", host: "", port: 5060, username: "", password: "" });
+      await load();
+    } catch (e) {
+      notify(false, (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteTrunk(id: string, providerId: string) {
+    if (!confirm("Удалить этот SIP транк?")) return;
+    try {
+      await api(`/api/settings/sip-trunks/${id}`, { method: "DELETE" });
+      await api(`/api/settings/integrations/${providerId}`, { method: "DELETE" });
+      notify(true, "Транк удалён");
+      await load();
+    } catch (e) {
+      notify(false, (e as Error).message);
+    }
+  }
+
+  async function setDefault(id: string) {
+    try {
+      // Re-add with isDefault=true — or just reload after patch
+      // For simplicity, delete and re-add is complex; let's just show info
+      notify(true, "Установите транк как основной через активацию интеграции");
+    } catch (e) {
+      notify(false, (e as Error).message);
+    }
+  }
+  void setDefault;
+
+  return (
+    <div className="stack">
+      {/* Add new SIP trunk */}
+      <section className="card">
+        <h2 className="section-title">Добавить SIP транк</h2>
+        <p className="muted" style={{ marginBottom: 16, fontSize: 13 }}>
+          Введите данные вашего SIP-провайдера (Zadarma, Binotel, Twilio, и др.)
+        </p>
+        <form onSubmit={(e) => void save(e)} className="form-grid">
+          <label>
+            Название провайдера
+            <input
+              value={form.name}
+              onChange={(e) => setForm((v) => ({ ...v, name: e.target.value }))}
+              placeholder="Zadarma"
+              required
+            />
+          </label>
+          <label>
+            SIP сервер (хост)
+            <input
+              value={form.host}
+              onChange={(e) => setForm((v) => ({ ...v, host: e.target.value }))}
+              placeholder="pbx.zadarma.com"
+              required
+            />
+          </label>
+          <label>
+            Порт
+            <input
+              type="number"
+              value={form.port}
+              onChange={(e) => setForm((v) => ({ ...v, port: Number(e.target.value) }))}
+              placeholder="5060"
+              required
+            />
+          </label>
+          <label>
+            Логин (SIP username)
+            <input
+              value={form.username}
+              onChange={(e) => setForm((v) => ({ ...v, username: e.target.value }))}
+              placeholder="564813-102"
+            />
+          </label>
+          <label>
+            Пароль (SIP secret)
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm((v) => ({ ...v, password: e.target.value }))}
+              placeholder="••••••••"
+            />
+          </label>
+          <div style={{ display: "flex", alignItems: "flex-end" }}>
+            <button type="submit" disabled={saving}>
+              {saving ? "Сохранение..." : "Добавить транк"}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      {/* Existing trunks */}
+      <section className="card">
+        <h2 className="section-title">Активные SIP транки</h2>
+        {loading ? (
+          <p className="muted">Загрузка...</p>
+        ) : trunks.length === 0 ? (
+          <p className="muted">Нет настроенных транков</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {trunks.map((t) => (
+              <div key={t.id} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "12px 16px",
+                border: t.isDefault ? "1px solid rgba(59,130,246,0.4)" : "1px solid rgba(255,255,255,0.06)",
+              }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>📞 {t.endpointName}</span>
+                    {t.isDefault && (
+                      <span style={{
+                        fontSize: 11, padding: "2px 8px", borderRadius: 8,
+                        background: "rgba(59,130,246,0.2)", color: "#60a5fa", fontWeight: 600,
+                      }}>
+                        Основной
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#888", marginTop: 2 }}>
+                    {t.host}:{t.port}
+                    {t.username && <span style={{ marginLeft: 8 }}>· {t.username}</span>}
+                  </div>
+                </div>
+                <button
+                  className="danger"
+                  style={{ fontSize: 12 }}
+                  onClick={() => void deleteTrunk(t.id, t.providerId)}
+                >
+                  Удалить
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{
+          marginTop: 12, padding: "10px 14px", borderRadius: 8,
+          background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
+          fontSize: 12, color: "#93c5fd",
+        }}>
+          💡 Endpoint транка используется в Asterisk как <code>PJSIP/$&#123;phone&#125;@trunk-имя</code>.
+          Убедитесь, что в <code>pjsip.conf</code> на сервере есть соответствующий transport.
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ── VAPI Section ──────────────────────────────────────────────────────────────
+
+function VapiSection({ notify }: { notify: (ok: boolean, text: string) => void }) {
+  const [config, setConfig] = useState<VapiConfig>({
+    assistantId: "", phoneNumberId: "", webhookSecret: "", apiKeySet: false,
+  });
+  const [form, setForm] = useState({ apiKey: "", assistantId: "", phoneNumberId: "", webhookSecret: "" });
+
+  useEffect(() => {
+    api<VapiConfig>("/api/settings/vapi/config")
+      .then((c) => {
+        setConfig(c);
+        setForm((f) => ({ ...f, assistantId: c.assistantId, phoneNumberId: c.phoneNumberId, webhookSecret: c.webhookSecret }));
+      })
+      .catch(() => {});
+  }, []);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      const saved = await api<VapiConfig>("/api/settings/vapi/config", {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
+      setConfig(saved);
+      setForm((f) => ({ ...f, apiKey: "" }));
+      notify(true, "VAPI настройки сохранены");
+    } catch (e) {
+      notify(false, (e as Error).message);
+    }
+  }
+
+  async function test() {
+    try {
+      const r = await api<{ ok: boolean; details: string }>("/api/settings/vapi/test", { method: "POST" });
+      notify(r.ok, `Тест VAPI: ${r.details}`);
+    } catch (e) {
+      notify(false, (e as Error).message);
+    }
+  }
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "https://callcloser.live";
+
+  return (
+    <section className="card stack">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h2 className="section-title" style={{ margin: 0 }}>VAPI AI Voice</h2>
+          <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
+            Исходящие звонки через VAPI. Промпт передаётся из CRM автоматически.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{
+            fontSize: 12, padding: "3px 10px", borderRadius: 8, fontWeight: 600,
+            background: config.apiKeySet ? "rgba(34,197,94,0.15)" : "rgba(245,158,11,0.15)",
+            color: config.apiKeySet ? "#4ade80" : "#fbbf24",
+          }}>
+            {config.apiKeySet ? "✓ Подключён" : "Не настроен"}
+          </span>
+          <button className="secondary" onClick={() => void test()}>Тест</button>
+        </div>
+      </div>
+
+      <form onSubmit={(e) => void save(e)} className="form-grid">
+        <label>
+          API Key{config.apiKeySet && <span className="muted"> (уже задан — введи для обновления)</span>}
+          <input
+            type="password"
+            placeholder={config.apiKeySet ? "••••••••" : "Введите VAPI API key"}
+            value={form.apiKey}
+            onChange={(e) => setForm((v) => ({ ...v, apiKey: e.target.value }))}
+          />
+        </label>
+        <label>
+          Phone Number ID <span className="muted">(из VAPI Dashboard → Phone Numbers)</span>
+          <input
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            value={form.phoneNumberId}
+            onChange={(e) => setForm((v) => ({ ...v, phoneNumberId: e.target.value }))}
+          />
+        </label>
+        <label>
+          Assistant ID <span className="muted">(необязательно, если используем CRM промпт)</span>
+          <input
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            value={form.assistantId}
+            onChange={(e) => setForm((v) => ({ ...v, assistantId: e.target.value }))}
+          />
+        </label>
+        <label>
+          Webhook Secret <span className="muted">(необязательно)</span>
+          <input
+            placeholder="my-webhook-secret"
+            value={form.webhookSecret}
+            onChange={(e) => setForm((v) => ({ ...v, webhookSecret: e.target.value }))}
+          />
+        </label>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <button type="submit">Сохранить</button>
+          <div style={{
+            marginTop: 10, padding: "8px 12px", borderRadius: 8, fontSize: 12,
+            background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
+            color: "#93c5fd",
+          }}>
+            📌 Webhook URL для VAPI Dashboard:{" "}
+            <code style={{ background: "rgba(0,0,0,0.3)", padding: "2px 6px", borderRadius: 4 }}>
+              {origin}/webhooks/vapi
+            </code>
+          </div>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+// ── Security Section ──────────────────────────────────────────────────────────
+
+function SecuritySection({ notify }: { notify: (ok: boolean, text: string) => void }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (next !== confirm) { setMsg({ ok: false, text: "Пароли не совпадают" }); return; }
-    if (next.length < 6) { setMsg({ ok: false, text: "Минимум 6 символов" }); return; }
+    if (next !== confirm) { notify(false, "Пароли не совпадают"); return; }
+    if (next.length < 6) { notify(false, "Минимум 6 символов"); return; }
     setLoading(true);
-    setMsg(null);
     try {
-      const r = await api("/api/auth/password", {
+      await api("/api/auth/password", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify({ currentPassword: current, newPassword: next }),
-      }) as Response;
-      if (!r.ok) {
-        const b = await r.json().catch(() => ({})) as { message?: string };
-        setMsg({ ok: false, text: b.message ?? "Ошибка" });
-      } else {
-        setMsg({ ok: true, text: "Пароль успешно изменён" });
-        setCurrent(""); setNext(""); setConfirm("");
-      }
+      });
+      notify(true, "Пароль успешно изменён");
+      setCurrent(""); setNext(""); setConfirm("");
     } catch {
-      setMsg({ ok: false, text: "Ошибка подключения" });
+      notify(false, "Неверный текущий пароль");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <section className="card">
+    <section className="card" style={{ maxWidth: 440 }}>
       <h2 className="section-title">Смена пароля</h2>
-      <form onSubmit={(e) => void submit(e)} style={{ maxWidth: 400 }}>
-        <div className="form-grid">
-          <label>
-            Текущий пароль
-            <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
-          </label>
-          <label>
-            Новый пароль
-            <input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={6} />
-          </label>
-          <label>
-            Повторите новый пароль
-            <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
-          </label>
+      <form onSubmit={(e) => void submit(e)} className="form-grid">
+        <label>
+          Текущий пароль
+          <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+        </label>
+        <label>
+          Новый пароль
+          <input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={6} placeholder="Минимум 6 символов" />
+        </label>
+        <label>
+          Повторите новый пароль
+          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+        </label>
+        <div style={{ display: "flex", alignItems: "flex-end" }}>
+          <button type="submit" disabled={loading}>
+            {loading ? "Сохранение..." : "Сменить пароль"}
+          </button>
         </div>
-        {msg && (
-          <p style={{ color: msg.ok ? "#4ade80" : "#f87171", marginTop: 8, fontSize: 13 }}>
-            {msg.text}
-          </p>
-        )}
-        <button type="submit" disabled={loading} style={{ marginTop: 12 }}>
-          {loading ? "Сохранение..." : "Сменить пароль"}
-        </button>
       </form>
     </section>
   );
