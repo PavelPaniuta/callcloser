@@ -2,36 +2,50 @@ import {
   Body,
   Controller,
   Post,
+  Put,
   UnauthorizedException,
-  ConflictException,
+  UseGuards,
+  Req,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
-import { IsString, IsEmail, MinLength } from "class-validator";
+import { IsString, MinLength } from "class-validator";
 import { prisma } from "@crm/db";
 import * as bcrypt from "bcryptjs";
+import { Request } from "express";
+import { JwtAuthGuard } from "./jwt-auth.guard";
 
 class LoginDto {
-  @IsEmail()
-  email!: string;
+  @IsString()
+  login!: string;
 
   @IsString()
-  @MinLength(4)
   password!: string;
 }
 
-class RegisterDto {
-  @IsEmail()
-  email!: string;
+class ChangePasswordDto {
+  @IsString()
+  currentPassword!: string;
 
   @IsString()
   @MinLength(6)
-  password!: string;
+  newPassword!: string;
+}
 
-  @IsString()
-  name!: string;
+const DEFAULT_LOGIN = process.env.ADMIN_LOGIN ?? "admin";
+const DEFAULT_PASSWORD = process.env.ADMIN_PASSWORD ?? "123456qwerty";
+const CONFIG_KEY = "auth.admin";
 
-  @IsString()
-  setupKey!: string;
+async function getCredentials(): Promise<{ login: string; passwordHash: string }> {
+  const cfg = await prisma.systemConfig.findUnique({ where: { key: CONFIG_KEY } });
+  if (cfg) {
+    return cfg.value as { login: string; passwordHash: string };
+  }
+  // First run — hash default password and save it
+  const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 12);
+  await prisma.systemConfig.create({
+    data: { key: CONFIG_KEY, value: { login: DEFAULT_LOGIN, passwordHash } },
+  });
+  return { login: DEFAULT_LOGIN, passwordHash };
 }
 
 @Controller("api/auth")
@@ -40,49 +54,38 @@ export class AuthController {
 
   @Post("login")
   async login(@Body() body: LoginDto) {
-    const user = await prisma.user.findUnique({
-      where: { email: body.email.toLowerCase() },
-    });
-    if (!user) throw new UnauthorizedException("Неверный email или пароль");
+    const creds = await getCredentials();
 
-    const valid = await bcrypt.compare(body.password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException("Неверный email или пароль");
+    if (body.login.toLowerCase() !== creds.login.toLowerCase()) {
+      throw new UnauthorizedException("Неверный логин или пароль");
+    }
 
-    const token = this.jwt.sign({ sub: user.id, role: user.role });
-    return {
-      accessToken: token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
-    };
+    const valid = await bcrypt.compare(body.password, creds.passwordHash);
+    if (!valid) throw new UnauthorizedException("Неверный логин или пароль");
+
+    const token = this.jwt.sign({ sub: creds.login, role: "admin" });
+    return { accessToken: token };
   }
 
-  // First-time setup: creates the first admin user.
-  // Only works when no users exist yet OR when SETUP_KEY env matches.
-  @Post("setup")
-  async setup(@Body() body: RegisterDto) {
-    const setupKey = process.env.SETUP_KEY ?? "callcloser-setup";
-    if (body.setupKey !== setupKey) {
-      throw new UnauthorizedException("Invalid setup key");
-    }
+  @UseGuards(JwtAuthGuard)
+  @Put("password")
+  async changePassword(
+    @Body() body: ChangePasswordDto,
+    @Req() req: Request,
+  ) {
+    void req;
+    const creds = await getCredentials();
 
-    const count = await prisma.user.count();
-    if (count > 0) {
-      throw new ConflictException("Setup already completed. Use /api/auth/login");
-    }
+    const valid = await bcrypt.compare(body.currentPassword, creds.passwordHash);
+    if (!valid) throw new UnauthorizedException("Неверный текущий пароль");
 
-    const passwordHash = await bcrypt.hash(body.password, 12);
-    const user = await prisma.user.create({
-      data: {
-        email: body.email.toLowerCase(),
-        passwordHash,
-        name: body.name,
-        role: "admin",
-      },
+    const passwordHash = await bcrypt.hash(body.newPassword, 12);
+    await prisma.systemConfig.upsert({
+      where: { key: CONFIG_KEY },
+      create: { key: CONFIG_KEY, value: { login: creds.login, passwordHash } },
+      update: { value: { login: creds.login, passwordHash } },
     });
 
-    const token = this.jwt.sign({ sub: user.id, role: user.role });
-    return {
-      accessToken: token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
-    };
+    return { ok: true };
   }
 }

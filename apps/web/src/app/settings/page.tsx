@@ -472,6 +472,8 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      <ChangePasswordSection />
+
       <section className="card">
         <h2 className="section-title">Config revisions</h2>
         <div className="table-wrap">
@@ -491,5 +493,69 @@ export default function SettingsPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function ChangePasswordSection() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (next !== confirm) { setMsg({ ok: false, text: "Пароли не совпадают" }); return; }
+    if (next.length < 6) { setMsg({ ok: false, text: "Минимум 6 символов" }); return; }
+    setLoading(true);
+    setMsg(null);
+    try {
+      const r = await api("/api/auth/password", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        setMsg({ ok: false, text: (b as { message?: string }).message ?? "Ошибка" });
+      } else {
+        setMsg({ ok: true, text: "Пароль успешно изменён" });
+        setCurrent(""); setNext(""); setConfirm("");
+      }
+    } catch {
+      setMsg({ ok: false, text: "Ошибка подключения" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2 className="section-title">Смена пароля</h2>
+      <form onSubmit={(e) => void submit(e)} style={{ maxWidth: 400 }}>
+        <div className="form-grid">
+          <label>
+            Текущий пароль
+            <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+          </label>
+          <label>
+            Новый пароль
+            <input type="password" value={next} onChange={(e) => setNext(e.target.value)} required minLength={6} />
+          </label>
+          <label>
+            Повторите новый пароль
+            <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+          </label>
+        </div>
+        {msg && (
+          <p style={{ color: msg.ok ? "#4ade80" : "#f87171", marginTop: 8, fontSize: 13 }}>
+            {msg.text}
+          </p>
+        )}
+        <button type="submit" disabled={loading} style={{ marginTop: 12 }}>
+          {loading ? "Сохранение..." : "Сменить пароль"}
+        </button>
+      </form>
+    </section>
   );
 }
