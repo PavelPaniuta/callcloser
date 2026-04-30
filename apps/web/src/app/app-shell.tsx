@@ -33,6 +33,7 @@ import { AppThemeMode, getAppTheme } from "./theme";
 import { clearToken, api } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import LocalFireDepartmentRoundedIcon from "@mui/icons-material/LocalFireDepartmentRounded";
+import PermContactCalendarRoundedIcon from "@mui/icons-material/PermContactCalendarRounded";
 
 const drawerWidth = 272;
 
@@ -45,6 +46,7 @@ const navItems = [
     icon: <SettingsSuggestRoundedIcon />,
   },
   { href: "/prompts", label: "Промпты", icon: <DescriptionRoundedIcon /> },
+  { href: "/phone-bases", label: "Базы номеров", icon: <PermContactCalendarRoundedIcon /> },
   { href: "/campaigns", label: "Кампании", icon: <CampaignRoundedIcon /> },
   { href: "/hot-calls", label: "Горячие звонки", icon: <LocalFireDepartmentRoundedIcon />, hot: true },
 ];

@@ -241,3 +241,13 @@ model ConfigRevision {
   createdAt  DateTime             @default(now())
   appliedAt  DateTime?
 }
+
+// Phone number database for campaigns
+model PhoneBase {
+  id        String   @id @default(cuid())
+  name      String
+  numbers   Json     // [{ phone: string, name?: string }]
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

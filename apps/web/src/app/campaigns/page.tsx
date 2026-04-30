@@ -60,6 +60,12 @@ type ParsedLead = {
   phone: string;
 };
 
+type PhoneBase = {
+  id: string;
+  name: string;
+  count: number;
+};
+
 function normalizePhone(raw: string): string {
   const cleaned = raw.replace(/[^\d+]/g, "");
   if (!cleaned) return "";
@@ -67,17 +73,39 @@ function normalizePhone(raw: string): string {
   return `+${cleaned.replace(/\D/g, "")}`;
 }
 
+const PHONE_RE = /^\+?[\d\s\-\(\)]{7,}$/;
+
 function parseLeads(text: string): ParsedLead[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const chunks = line.split(/[;,]/).map((v) => v.trim()).filter(Boolean);
-      if (chunks.length === 1) return { phone: normalizePhone(chunks[0]) };
-      return { name: chunks[0], phone: normalizePhone(chunks[chunks.length - 1]) };
-    })
-    .filter((x) => /^\+?[0-9]{10,15}$/.test(x.phone));
+  const leads: ParsedLead[] = [];
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    const chunks = line.split(/[;,\t]/).map((v) => v.trim()).filter(Boolean);
+    if (chunks.length === 0) continue;
+
+    if (chunks.length === 1) {
+      // Single value → phone
+      const phone = normalizePhone(chunks[0]);
+      if (phone) leads.push({ phone });
+    } else {
+      // Check if ALL chunks look like phone numbers
+      const allPhones = chunks.every((c) => PHONE_RE.test(c));
+      if (allPhones) {
+        // Multiple phones on one line (e.g. "+380501; +380671")
+        for (const chunk of chunks) {
+          const phone = normalizePhone(chunk);
+          if (phone) leads.push({ phone });
+        }
+      } else {
+        // Name, phone format (e.g. "John; +380501234567")
+        const phone = normalizePhone(chunks[chunks.length - 1]);
+        const name = chunks[0];
+        if (phone) leads.push({ name, phone });
+      }
+    }
+  }
+
+  return leads.filter((x) => /^\+?[0-9]{10,15}$/.test(x.phone));
 }
 
 function statusColor(status: CampaignStatus): "success" | "warning" | "error" | "primary" {
@@ -104,6 +132,8 @@ export default function CampaignsPage() {
   const [maxAttempts, setMaxAttempts] = useState(2);
   const [retryDelayMs, setRetryDelayMs] = useState(1500);
   const [leadsRaw, setLeadsRaw] = useState("");
+  const [phoneBases, setPhoneBases] = useState<PhoneBase[]>([]);
+  const [selectedBaseId, setSelectedBaseId] = useState("");
   const [dncPhone, setDncPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -111,16 +141,18 @@ export default function CampaignsPage() {
   const [activeLogRunId, setActiveLogRunId] = useState<string>("");
 
   async function reload() {
-    const [promptRows, campaignRows, policyRow, dncRows] = await Promise.all([
+    const [promptRows, campaignRows, policyRow, dncRows, baseRows] = await Promise.all([
       api<PromptRow[]>("/api/prompts"),
       api<CampaignRun[]>("/api/admin/campaigns"),
       api<CampaignPolicy>("/api/admin/campaigns/policy"),
       api<string[]>("/api/admin/campaigns/dnc"),
+      api<PhoneBase[]>("/api/admin/phone-bases").catch(() => [] as PhoneBase[]),
     ]);
     setPrompts(promptRows);
     setRuns(campaignRows);
     setPolicy(policyRow);
     setDncList(dncRows);
+    setPhoneBases(baseRows);
     if (!promptId) {
       const active = promptRows.find((x) => x.isActive);
       if (active) setPromptId(active.id);
@@ -145,6 +177,17 @@ export default function CampaignsPage() {
     }, 3000);
     return () => clearInterval(timer);
   }, []);
+
+  async function loadFromBase(baseId: string) {
+    if (!baseId) return;
+    try {
+      const b = await api<{ numbers: { phone: string; name?: string }[] }>(`/api/admin/phone-bases/${baseId}`);
+      const lines = b.numbers.map((n) => n.name ? `${n.name}; ${n.phone}` : n.phone);
+      setLeadsRaw(lines.join("\n"));
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }
 
   async function startCampaign() {
     const leads = parseLeads(leadsRaw);
@@ -370,6 +413,35 @@ export default function CampaignsPage() {
                   fullWidth
                 />
               </Box>
+              {phoneBases.length > 0 && (
+                <Box sx={{ gridColumn: { xs: "1 / -1" } }}>
+                  <Stack direction="row" spacing={1} alignItems="flex-end">
+                    <TextField
+                      select
+                      label="Загрузить из базы номеров"
+                      value={selectedBaseId}
+                      onChange={(e) => setSelectedBaseId(e.target.value)}
+                      fullWidth
+                      helperText="Выберите базу — номера загрузятся в поле ниже"
+                    >
+                      <MenuItem value="">— не выбрано —</MenuItem>
+                      {phoneBases.map((b) => (
+                        <MenuItem key={b.id} value={b.id}>
+                          {b.name} ({b.count} номеров)
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <Button
+                      variant="outlined"
+                      sx={{ mb: "20px", whiteSpace: "nowrap" }}
+                      disabled={!selectedBaseId}
+                      onClick={() => void loadFromBase(selectedBaseId)}
+                    >
+                      Загрузить
+                    </Button>
+                  </Stack>
+                </Box>
+              )}
               <Box sx={{ gridColumn: { xs: "1 / -1" } }}>
                 <TextField
                   label="База контактов"
@@ -378,7 +450,8 @@ export default function CampaignsPage() {
                   fullWidth
                   multiline
                   minRows={8}
-                  placeholder="+79990000001&#10;Иван Петров; +79990000002"
+                  placeholder={"+380501234567\n+380671234568\nИван Петров; +380991234569"}
+                  helperText="Один номер на строку, или через ; (например: Имя; +380501234567). Несколько номеров через ; на одной строке тоже поддерживаются."
                 />
               </Box>
             </Box>

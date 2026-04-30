@@ -1,5 +1,5 @@
 import { HttpService } from "@nestjs/axios";
-import { Body, Controller, Get, Param, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from "@nestjs/common";
 import { prisma } from "@crm/db";
 import { firstValueFrom } from "rxjs";
 import { CampaignRunnerService } from "./campaign-runner.service";
@@ -360,5 +360,48 @@ export class AdminController {
         reviewedAt: ["REVIEWED", "CLOSED"].includes(body.reviewStatus) ? new Date() : undefined,
       },
     });
+  }
+
+  // ── Phone Bases ────────────────────────────────────────────
+
+  @Get("phone-bases")
+  async listPhoneBases() {
+    return prisma.phoneBase.findMany({
+      orderBy: { createdAt: "desc" },
+      select: { id: true, name: true, count: true, createdAt: true },
+    });
+  }
+
+  @Post("phone-bases")
+  async createPhoneBase(@Body() body: { name: string; numbers: { phone: string; name?: string }[] }) {
+    const count = body.numbers?.length ?? 0;
+    return prisma.phoneBase.create({
+      data: { name: body.name, numbers: body.numbers ?? [], count },
+    });
+  }
+
+  @Get("phone-bases/:id")
+  async getPhoneBase(@Param("id") id: string) {
+    return prisma.phoneBase.findUniqueOrThrow({ where: { id } });
+  }
+
+  @Put("phone-bases/:id")
+  async updatePhoneBase(
+    @Param("id") id: string,
+    @Body() body: { name?: string; numbers?: { phone: string; name?: string }[] },
+  ) {
+    const data: Record<string, unknown> = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.numbers !== undefined) {
+      data.numbers = body.numbers;
+      data.count = body.numbers.length;
+    }
+    return prisma.phoneBase.update({ where: { id }, data });
+  }
+
+  @Delete("phone-bases/:id")
+  async deletePhoneBase(@Param("id") id: string) {
+    await prisma.phoneBase.delete({ where: { id } });
+    return { ok: true };
   }
 }

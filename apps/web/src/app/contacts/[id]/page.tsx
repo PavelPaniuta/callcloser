@@ -35,7 +35,7 @@ export default function ContactDetailPage() {
   const [actionBusy, setActionBusy] = useState(false);
 
   const gatewayWs = useMemo(
-    () => process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:3010",
+    () => typeof window !== "undefined" ? window.location.origin : "",
     [],
   );
 
