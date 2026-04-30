@@ -258,7 +258,7 @@ export default function PhoneBasesPage() {
               value={rawText}
               onChange={(e) => setRawText(e.target.value)}
               placeholder={`+380501234567\n+380671234568\nИван; +380991234569`}
-              inputProps={{ style: { fontFamily: "monospace", fontSize: 13 } }}
+              slotProps={{ htmlInput: { style: { fontFamily: "monospace", fontSize: 13 } } }}
             />
 
             {rawText && (
