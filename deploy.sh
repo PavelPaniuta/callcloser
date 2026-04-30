@@ -64,13 +64,16 @@ pnpm install --frozen-lockfile
 
 # ── 8. DB migrate + generate ─────────────────────────────────
 echo "Running DB migrations..."
-cd packages/db
+cd "$APP_DIR/packages/db"
+# Load root .env so Prisma can find DATABASE_URL
+set -a; source "$APP_DIR/.env"; set +a
 npx prisma migrate deploy
 npx prisma generate
 cd "$APP_DIR"
 
 # ── 9. Build all apps ─────────────────────────────────────────
 echo "Building apps..."
+set -a; source "$APP_DIR/.env"; set +a
 pnpm --filter @crm/web build
 pnpm --filter @crm/gateway build 2>/dev/null || true
 pnpm --filter @crm/calls-service build 2>/dev/null || true
