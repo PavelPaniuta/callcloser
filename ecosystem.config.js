@@ -47,8 +47,8 @@ module.exports = {
     {
       name: "tts-service",
       cwd: "/opt/callcloser/apps/tts-service",
-      script: "node_modules/.bin/tsx",
-      args: "src/index.ts",
+      script: "node",
+      args: "dist/index.js",
       env_file: "/opt/callcloser/.env",
       max_memory_restart: "256M",
       restart_delay: 3000,
@@ -57,8 +57,8 @@ module.exports = {
     {
       name: "voicebot",
       cwd: "/opt/callcloser/apps/voicebot",
-      script: "node_modules/.bin/tsx",
-      args: "src/index.ts",
+      script: "node",
+      args: "dist/index.js",
       env_file: "/opt/callcloser/.env",
       max_memory_restart: "512M",
       restart_delay: 5000,
@@ -67,8 +67,8 @@ module.exports = {
     {
       name: "analytics-worker",
       cwd: "/opt/callcloser/apps/analytics-worker",
-      script: "node_modules/.bin/tsx",
-      args: "src/main.ts",
+      script: "node",
+      args: "dist/main.js",
       env_file: "/opt/callcloser/.env",
       max_memory_restart: "256M",
       restart_delay: 3000,
