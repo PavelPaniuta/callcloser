@@ -92,8 +92,9 @@ export default function AdminPage() {
   const [callAnalytics, setCallAnalytics] = useState<CallAnalytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
+  // WebSocket connects to the same origin (Nginx proxies /socket.io/ to gateway)
   const gatewayWs = useMemo(
-    () => process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:3010",
+    () => typeof window !== "undefined" ? window.location.origin : "",
     [],
   );
 
@@ -205,16 +206,10 @@ export default function AdminPage() {
     setBusy(true);
     setErr(null);
     try {
-      const token = getToken();
-      const r = await fetch(`${gatewayWs}/api/calls/${callId}/cancel`, {
+      await api(`/api/calls/${callId}/cancel`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
         body: JSON.stringify({ reason: "Cancelled by admin monitor" }),
       });
-      if (!r.ok) throw new Error(await r.text());
       await loadAll();
     } catch (e) {
       setErr(String((e as Error).message));
