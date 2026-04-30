@@ -79,7 +79,10 @@ export class AriService implements OnModuleDestroy {
         channelId: channel.id,
       };
     } catch (e: unknown) {
-      this.log.warn(`originate failed: ${(e as Error)?.message ?? e}`);
+      const msg = (e as Error)?.message ?? String(e);
+      this.log.warn(
+        `originate failed endpoint=${endpoint}: ${msg}. Check Zadarma SIP password in pjsip + pjsip show registrations`,
+      );
       return null;
     }
   }
