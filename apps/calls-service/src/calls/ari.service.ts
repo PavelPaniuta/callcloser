@@ -59,12 +59,21 @@ export class AriService implements OnModuleDestroy {
     const endpoint = await this.resolveEndpoint(phone);
     try {
       const appArgs = [direction, phone, callId, ...extraArgs].join(",");
-      const channel = await client.channels.originate({
-        endpoint,
-        app: this.app,
-        appArgs,
-        callerId: `CRM AI <${phone}>`,
-      });
+      // Never use callee as Caller-ID — Zadarma (and most ITSPs) reject it.
+      // PJSIP from_user / optional ASTERISK_OUTBOUND_CALLER_ID supply CLI.
+      const opts: {
+        endpoint: string;
+        app: string;
+        appArgs: string;
+        callerId?: string;
+      } = { endpoint, app: this.app, appArgs };
+      const cid =
+        process.env.ASTERISK_OUTBOUND_CALLER_ID?.trim() ||
+        process.env.ZADARMA_CALLER_ID?.trim();
+      if (cid) {
+        opts.callerId = cid.includes("<") ? cid : `"CRM" <${cid}>`;
+      }
+      const channel = await client.channels.originate(opts);
       return {
         uniqueId: channel.id,
         channelId: channel.id,
