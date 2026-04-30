@@ -1,0 +1,220 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  CREATED
+  QUEUED
+  RINGING
+  ANSWERED
+  ENDED
+  FAILED
+}
+
+enum IntegrationType {
+  SIP
+  VAPI
+  ASR
+  LLM
+  TTS
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RoutingDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum RoutingAction {
+  VOICEBOT
+  QUEUE
+  TRANSFER
+}
+
+enum ConfigRevisionStatus {
+  DRAFT
+  APPLIED
+  ROLLED_BACK
+  FAILED
+}
+
+model Company {
+  id        String    @id @default(cuid())
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  contacts  Contact[]
+}
+
+model Contact {
+  id         String     @id @default(cuid())
+  phone      String     @unique
+  name       String?
+  companyId  String?
+  company    Company?   @relation(fields: [companyId], references: [id])
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  activities Activity[]
+  calls      Call[]
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  contactId String
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  type      String
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+model Call {
+  id                 String        @id @default(cuid())
+  direction          CallDirection
+  status             CallStatus    @default(CREATED)
+  contactId          String?
+  contact            Contact?      @relation(fields: [contactId], references: [id])
+  asteriskUniqueId   String?       @unique
+  channelId          String?
+  recordingObjectKey String?
+  promptVersionId    String?
+  promptVersion      PromptVersion? @relation(fields: [promptVersionId], references: [id])
+  startedAt          DateTime?
+  endedAt            DateTime?
+  failureReason      String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  analytics          CallAnalytics?
+}
+
+model PromptVersion {
+  id           String   @id @default(cuid())
+  name         String
+  systemPrompt String   @db.Text
+  isActive     Boolean  @default(false)
+  publishedAt  DateTime?
+  createdAt    DateTime @default(now())
+  calls        Call[]
+}
+
+model CallAnalytics {
+  id                String   @id @default(cuid())
+  callId            String   @unique
+  call              Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  transcript        String?  @db.Text
+  summary           String?  @db.Text
+  improvements      String?  @db.Text
+  detectedKeywords  Json?    // [{ word: string, action: "DNC"|"TAG"|"NOTIFY", count: number }]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  resource  String
+  payload   Json?
+  createdAt DateTime @default(now())
+}
+
+model UsageRecord {
+  id         String   @id @default(cuid())
+  service    String
+  metric     String
+  quantity   Float
+  unit       String
+  metadata   Json?
+  recordedAt DateTime @default(now())
+}
+
+model IntegrationProvider {
+  id          String             @id @default(cuid())
+  type        IntegrationType
+  name        String
+  endpointUrl String?
+  config      Json?
+  status      IntegrationStatus  @default(INACTIVE)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  secrets     IntegrationSecret[]
+  sipTrunks   SipTrunk[]
+
+  @@unique([type, name])
+}
+
+model IntegrationSecret {
+  id         String              @id @default(cuid())
+  providerId String
+  provider   IntegrationProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  keyName    String
+  cipherText String              @db.Text
+  iv         String
+  version    Int                 @default(1)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@unique([providerId, keyName])
+}
+
+model SipTrunk {
+  id             String              @id @default(cuid())
+  providerId     String
+  provider       IntegrationProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  endpointName   String
+  host           String
+  port           Int                 @default(5060)
+  username       String?
+  fromDomain     String?
+  outboundProxy  String?
+  didNumbers     Json?
+  codecs         Json?
+  transport      String              @default("udp")
+  isDefault      Boolean             @default(false)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model RoutingRule {
+  id          String           @id @default(cuid())
+  direction   RoutingDirection
+  matchExpr   String
+  action      RoutingAction
+  target      String
+  priority    Int              @default(100)
+  enabled     Boolean          @default(true)
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model SystemConfig {
+  key       String   @id
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ConfigRevision {
+  id         String               @id @default(cuid())
+  scope      String
+  payload    Json
+  status     ConfigRevisionStatus @default(DRAFT)
+  actorId    String?
+  createdAt  DateTime             @default(now())
+  appliedAt  DateTime?
+}

@@ -1,0 +1,21 @@
+{
+  "name": "crm-asterisk-ai",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev:gateway": "pnpm --filter @crm/gateway dev",
+    "dev:crm": "pnpm --filter @crm/crm-service dev",
+    "dev:calls": "pnpm --filter @crm/calls-service dev",
+    "dev:prompt": "pnpm --filter @crm/prompt-service dev",
+    "dev:voicebot": "pnpm --filter @crm/voicebot dev",
+    "dev:analytics": "pnpm --filter @crm/analytics-worker dev",
+    "dev:web": "pnpm --filter @crm/web dev",
+    "db:generate": "pnpm --filter @crm/db prisma generate",
+    "db:push": "pnpm --filter @crm/db prisma db push",
+    "db:seed": "pnpm --filter @crm/db exec prisma db seed",
+    "db:studio": "pnpm --filter @crm/db prisma studio"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

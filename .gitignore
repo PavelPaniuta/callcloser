@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.next/
+build/
+*.tsbuildinfo
+
+# Environment — NEVER commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Prisma generated
+packages/db/node_modules/
+
+# Asterisk recordings
+asterisk/recordings/
+
+# TTS temp audio
+apps/tts-service/tmp-audio/
+
+# PM2
+.pm2/
