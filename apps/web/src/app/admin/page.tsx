@@ -116,14 +116,20 @@ export default function AdminPage() {
     setCalls(cl);
   };
 
-  const cleanupStuck = async () => {
+  const cleanupStuck = async (force: boolean) => {
     setBusy(true);
     try {
-      const r = await api<{ updated: number }>("/api/admin/calls/cleanup-stuck", {
+      const r = await api<{ updated: number; forced?: boolean }>("/api/admin/calls/cleanup-stuck", {
         method: "POST",
-        body: JSON.stringify({ olderThanSeconds: 120 }),
+        body: JSON.stringify(
+          force ? { force: true } : { olderThanSeconds: 120 },
+        ),
       });
-      alert(`Завершено застрявших звонков: ${r.updated}`);
+      alert(
+        force
+          ? `Сброшено активных в CRM: ${r.updated}`
+          : `Завершено застрявших (>2 мин): ${r.updated}`,
+      );
       await loadAll();
     } finally {
       setBusy(false);
@@ -339,10 +345,22 @@ export default function AdminPage() {
             className="danger"
             type="button"
             disabled={busy}
-            onClick={() => void cleanupStuck()}
-            title="Завершить все звонки застрявшие в RINGING/QUEUED > 2 минут"
+            onClick={() => void cleanupStuck(false)}
+            title="Только звонки в RINGING/QUEUED дольше 2 минут"
           >
-            🧹 Очистить застрявшие
+            Очистить застрявшие (&gt;2 мин)
+          </button>
+          <button
+            className="danger"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (!confirm("Сбросить ВСЕ активные в CRM (CREATED/QUEUED/RINGING/ANSWERED)? SIP может ещё звонить — проверьте Asterisk.")) return;
+              void cleanupStuck(true);
+            }}
+            title="Немедленно помечает все незавершённые звонки как FAILED в базе"
+          >
+            Сбросить все активные в CRM
           </button>
         </div>
         <div className="table-wrap">

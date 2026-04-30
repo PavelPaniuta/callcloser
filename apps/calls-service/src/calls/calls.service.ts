@@ -199,17 +199,25 @@ export class CallsService {
         failureReason: opts?.failureReason,
       },
     });
-    await this.endedQueue.add(
-      "analyze",
-      { callId: call.id },
-      { removeOnComplete: true, attempts: 3 },
-    );
-    this.log.log(`call-ended queued analytics for ${call.id}`);
-    await this.publishEvent({
-      callId: call.id,
-      status: call.status,
-      event: "call.ended",
-    });
+    try {
+      await this.endedQueue.add(
+        "analyze",
+        { callId: call.id },
+        { removeOnComplete: true, attempts: 3 },
+      );
+      this.log.log(`call-ended queued analytics for ${call.id}`);
+    } catch (e: unknown) {
+      this.log.warn(`analytics queue failed for ${call.id}: ${(e as Error)?.message ?? e}`);
+    }
+    try {
+      await this.publishEvent({
+        callId: call.id,
+        status: call.status,
+        event: "call.ended",
+      });
+    } catch (e: unknown) {
+      this.log.warn(`publishEvent failed: ${(e as Error)?.message ?? e}`);
+    }
     return call;
   }
 
@@ -221,7 +229,10 @@ export class CallsService {
     }
 
     if (call.channelId) {
-      await this.ari.hangupChannel(call.channelId);
+      const ok = await this.ari.hangupChannel(call.channelId);
+      if (!ok) {
+        this.log.warn(`cancelCall: ARI hangup did not confirm for ${call.channelId}; still closing in DB`);
+      }
     }
 
     await this.finalizeEnded(id, { failureReason: reason });

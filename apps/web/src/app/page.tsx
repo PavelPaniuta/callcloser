@@ -65,16 +65,10 @@ export default function ContactsPage() {
     setActionBusy(true);
     setErr(null);
     try {
-      const token = getToken();
-      const r = await fetch(`${gatewayWs}/api/calls/${callId}/cancel`, {
+      await api(`/api/calls/${callId}/cancel`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
         body: JSON.stringify({ reason: "Cancelled by user from dashboard" }),
       });
-      if (!r.ok) throw new Error(await r.text());
       const rows = await api<Call[]>("/api/calls");
       setCalls(rows);
     } catch (e) {

@@ -272,17 +272,36 @@ export class AdminController {
   // ── Stuck call cleanup ────────────────────────────────────────────────────
 
   @Post("calls/cleanup-stuck")
-  async cleanupStuck(@Body() body: { olderThanSeconds?: number }) {
-    const threshold = body.olderThanSeconds ?? 120; // default 2 min
+  async cleanupStuck(
+    @Body() body: { olderThanSeconds?: number; force?: boolean },
+  ) {
+    if (body.force) {
+      const result = await prisma.call.updateMany({
+        where: {
+          status: {
+            in: ["RINGING", "QUEUED", "CREATED", "ANSWERED"] as never[],
+          },
+        },
+        data: {
+          status: "FAILED" as never,
+          failureReason: "Admin force cleanup — CRM сброс активных статусов",
+        },
+      });
+      return { updated: result.count, forced: true as const };
+    }
+    const threshold = body.olderThanSeconds ?? 120;
     const cutoff = new Date(Date.now() - threshold * 1000);
     const result = await prisma.call.updateMany({
       where: {
         status: { in: ["RINGING", "QUEUED", "CREATED"] as never[] },
         createdAt: { lt: cutoff },
       },
-      data: { status: "FAILED" as never, failureReason: "Timeout — stuck in RINGING/QUEUED" },
+      data: {
+        status: "FAILED" as never,
+        failureReason: "Timeout — stuck in RINGING/QUEUED",
+      },
     });
-    return { updated: result.count, cutoff: cutoff.toISOString() };
+    return { updated: result.count, cutoff: cutoff.toISOString(), forced: false as const };
   }
 
   @Get("calls/stuck")

@@ -106,6 +106,9 @@ async function forward(
       method,
       headers: {
         "content-type": req.headers["content-type"] ?? "application/json",
+        ...(req.headers.authorization
+          ? { authorization: String(req.headers.authorization) }
+          : {}),
       },
       data: ["post", "patch", "put"].includes(method) ? req.body : undefined,
       validateStatus: () => true,

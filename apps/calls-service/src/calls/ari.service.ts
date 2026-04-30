@@ -84,16 +84,56 @@ export class AriService implements OnModuleDestroy {
     }
   }
 
-  async hangupChannel(channelId: string) {
+  async hangupChannel(channelId: string): Promise<boolean> {
+    if (!channelId?.trim()) return false;
     const client = await this.getClient();
-    if (!client) return false;
-    try {
-      await client.channels.hangup({ channelId });
-      return true;
-    } catch (e: unknown) {
-      this.log.warn(`hangup failed: ${(e as Error)?.message ?? e}`);
-      return false;
+    const ids = this.hangupChannelCandidates(channelId.trim());
+    for (const id of ids) {
+      if (client) {
+        try {
+          await client.channels.hangup({ channelId: id });
+          this.log.log(`ARI hangup ok: ${id}`);
+          return true;
+        } catch (e: unknown) {
+          this.log.warn(`ARI hangup failed ${id}: ${(e as Error)?.message ?? e}`);
+        }
+      }
+      const ok = await this.hangupChannelHttp(id);
+      if (ok) return true;
     }
+    return false;
+  }
+
+  private hangupChannelCandidates(channelId: string): string[] {
+    const out: string[] = [channelId];
+    if (channelId.includes(";1")) out.push(channelId.replace(";1", ";2"));
+    else if (channelId.includes(";2")) out.push(channelId.replace(";2", ";1"));
+    else if (channelId.startsWith("Local/")) {
+      out.push(`${channelId};1`, `${channelId};2`);
+    }
+    return [...new Set(out)];
+  }
+
+  /** Raw ARI REST — ari-client іноді віддає 404 через формат id; URL-encoding обовʼязковий. */
+  private async hangupChannelHttp(channelId: string): Promise<boolean> {
+    const base = this.url.replace(/\/$/, "");
+    if (!base) return false;
+    const auth = Buffer.from(`${this.user}:${this.pass}`).toString("base64");
+    try {
+      const url = `${base}/channels/${encodeURIComponent(channelId)}`;
+      const res = await fetch(url, {
+        method: "DELETE",
+        headers: { Authorization: `Basic ${auth}` },
+      });
+      if (res.ok) {
+        this.log.log(`ARI HTTP hangup ok: ${channelId}`);
+        return true;
+      }
+      this.log.warn(`ARI HTTP hangup ${res.status}: ${channelId}`);
+    } catch (e: unknown) {
+      this.log.warn(`ARI HTTP hangup error: ${(e as Error)?.message ?? e}`);
+    }
+    return false;
   }
 
   async onModuleDestroy() {
