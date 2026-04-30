@@ -514,10 +514,10 @@ function ChangePasswordSection() {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ currentPassword: current, newPassword: next }),
-      });
+      }) as Response;
       if (!r.ok) {
-        const b = await r.json().catch(() => ({}));
-        setMsg({ ok: false, text: (b as { message?: string }).message ?? "Ошибка" });
+        const b = await r.json().catch(() => ({})) as { message?: string };
+        setMsg({ ok: false, text: b.message ?? "Ошибка" });
       } else {
         setMsg({ ok: true, text: "Пароль успешно изменён" });
         setCurrent(""); setNext(""); setConfirm("");
