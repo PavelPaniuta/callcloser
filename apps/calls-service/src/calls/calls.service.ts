@@ -30,6 +30,33 @@ export class CallsService {
   ) {
     const url = process.env.REDIS_URL;
     this.redisPub = url ? new Redis(url, { lazyConnect: true }) : null;
+    // Cleanup calls stuck in an active state for more than 10 minutes.
+    // Handles the case where the voicebot restarts mid-call and loses track.
+    setInterval(() => void this.cleanupStuckCalls(), 2 * 60 * 1000);
+  }
+
+  private async cleanupStuckCalls() {
+    const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+    try {
+      const stuck = await prisma.call.findMany({
+        where: {
+          status: {
+            in: [CallStatus.CREATED, CallStatus.QUEUED, CallStatus.RINGING, CallStatus.ANSWERED],
+          },
+          createdAt: { lt: cutoff },
+        },
+        select: { id: true },
+      });
+      if (stuck.length === 0) return;
+      this.log.warn(`cleanup: finalizing ${stuck.length} stuck call(s)`);
+      for (const { id } of stuck) {
+        await this.finalizeEnded(id, { failureReason: "timeout_cleanup" }).catch((e: unknown) => {
+          this.log.warn(`cleanup finalize ${id} failed: ${(e as Error)?.message ?? e}`);
+        });
+      }
+    } catch (e: unknown) {
+      this.log.warn(`cleanupStuckCalls error: ${(e as Error)?.message ?? e}`);
+    }
   }
 
   private async publishEvent(payload: object) {
@@ -127,14 +154,14 @@ export class CallsService {
 
     await this.transition(call.id, CallStatus.QUEUED);
 
-    // ── Asterisk ARI path (both "asterisk" and "vapi" engines) ─────────────
-    // "vapi" engine: Asterisk dials via Zadarma → on answer bridges to VAPI SIP AI.
-    // "asterisk" engine: Asterisk + local OpenAI pipeline.
-    const useVapiAiBridge = input.engine === "vapi";
-    const direction = useVapiAiBridge ? "outbound-vapi" : "outbound";
+    // ── VAPI API path: VAPI dials customer directly via its own telephony ──
+    if (input.engine === "vapi") {
+      return this.createOutboundVapi(call.id, input.phone);
+    }
 
+    // ── Asterisk ARI path: Asterisk dials via Zadarma + local AI pipeline ──
     const dialPhone = this.normalizePhoneForZadarmaTrunk(input.phone);
-    const orig = await this.ari.originateOutbound(dialPhone, call.id, direction);
+    const orig = await this.ari.originateOutbound(dialPhone, call.id, "outbound");
     if (!orig?.uniqueId) {
       await prisma.call.update({
         where: { id: call.id },
@@ -153,6 +180,44 @@ export class CallsService {
       },
     });
     return this.get(call.id);
+  }
+
+  private async createOutboundVapi(callId: string, phone: string) {
+    // Fetch active system prompt for inline VAPI assistant
+    let systemPrompt: string | undefined;
+    try {
+      const promptUrl = process.env.PROMPT_SERVICE_URL ?? "http://localhost:3013";
+      const r = await fetch(`${promptUrl}/prompts/active`);
+      if (r.ok) {
+        const p = (await r.json()) as { systemPrompt?: string };
+        systemPrompt = p.systemPrompt;
+      }
+    } catch (e: unknown) {
+      this.log.warn(`VAPI: failed to fetch prompt: ${(e as Error)?.message ?? e}`);
+    }
+
+    const result = await this.vapi.originateCall(phone, callId, {
+      systemPrompt,
+      metadata: { crm_call_id: callId },
+    });
+
+    if (!result) {
+      await prisma.call.update({
+        where: { id: callId },
+        data: { status: CallStatus.FAILED, failureReason: "VAPI originate failed" },
+      });
+      return this.get(callId);
+    }
+
+    await prisma.call.update({
+      where: { id: callId },
+      data: {
+        status: CallStatus.RINGING,
+        asteriskUniqueId: result.callId,
+        startedAt: new Date(),
+      },
+    });
+    return this.get(callId);
   }
 
   async createInboundStub(callerPhone: string, promptVersionId?: string) {

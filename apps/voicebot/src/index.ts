@@ -280,21 +280,33 @@ function waitForAnswer(client: AriClient, channel: Channel): Promise<boolean> {
     const ch = channel as unknown as { state?: string };
     if (ch.state === "Up") { resolve(true); return; }
 
-    const timer = setTimeout(() => {
-      client.removeListener("ChannelStateChange", handler as never);
-      resolve(false);
-    }, ANSWER_TIMEOUT_MS);
+    let done = false;
+    const finish = (result: boolean) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      client.removeListener("ChannelStateChange", stateHandler as never);
+      client.removeListener("StasisEnd", endHandler as never);
+      resolve(result);
+    };
 
-    function handler(_: unknown, ch2: Channel) {
+    const timer = setTimeout(() => finish(false), ANSWER_TIMEOUT_MS);
+
+    function stateHandler(_: unknown, ch2: Channel) {
       if (ch2.id !== channel.id) return;
       const s = (ch2 as unknown as { state?: string }).state;
-      if (s === "Up") {
-        clearTimeout(timer);
-        client.removeListener("ChannelStateChange", handler as never);
-        resolve(true);
+      if (s === "Up") finish(true);
+    }
+
+    function endHandler(_: unknown, ch2: Channel) {
+      if (ch2.id === channel.id) {
+        console.log(`[waitForAnswer] channel=${channel.id} ended before answer`);
+        finish(false);
       }
     }
-    client.on("ChannelStateChange" as never, handler as never);
+
+    client.on("ChannelStateChange" as never, stateHandler as never);
+    client.on("StasisEnd" as never, endHandler as never);
   });
 }
 
