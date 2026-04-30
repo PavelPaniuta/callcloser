@@ -77,8 +77,8 @@ module.exports = {
     {
       name: "web",
       cwd: "/opt/callcloser/apps/web",
-      script: "node",
-      args: "node_modules/.bin/next start -p 3000",
+      script: "node_modules/next/dist/bin/next",
+      args: "start -p 3000",
       env_file: "/opt/callcloser/.env",
       env: { PORT: "3000", NODE_ENV: "production" },
       max_memory_restart: "512M",
