@@ -54,16 +54,20 @@ export class VapiService {
     return this.loadConfig().then((c) => c !== null);
   }
 
-  /** Normalize to E.164 (+XXXXXXXXXXX). Ukrainian 0XX → +380XX */
+  /**
+   * Normalize phone number for VAPI + Zadarma SIP trunk.
+   * Zadarma (Ukraine) expects domestic format: 0XXXXXXXXX (10 digits).
+   * We set numberE164CheckEnabled=false so VAPI won't reject non-E.164.
+   */
   private normalizePhone(phone: string): string {
     const digits = phone.replace(/\D/g, "");
-    // Ukraine: starts with 0 and 10 digits → add +38
-    if (digits.startsWith("0") && digits.length === 10) return `+38${digits}`;
-    // Already has country code (38...) → add +
-    if (digits.startsWith("38") && digits.length === 12) return `+${digits}`;
-    // Already E.164 without +
+    // Ukraine: +380XXXXXXXX or 380XXXXXXXX → 0XXXXXXXXX (domestic Zadarma format)
+    if (digits.startsWith("380") && digits.length === 12) return `0${digits.slice(3)}`;
+    // Ukraine: already domestic 0XXXXXXXXX
+    if (digits.startsWith("0") && digits.length === 10) return digits;
+    // Other countries: keep as-is (with + prefix)
     if (digits.length >= 10 && digits.length <= 15) return `+${digits}`;
-    return phone; // fallback: return as-is
+    return phone;
   }
 
   async originateCall(
