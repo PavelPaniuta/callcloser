@@ -495,20 +495,23 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
   const phone = arg1;
   const outboundCallId = arg2;
 
-  const prompt = await fetchActivePrompt().catch(() => null);
-  if (!prompt) {
-    console.error("[VoiceBot] No active prompt");
-    await channel.hangup().catch(() => undefined);
-    return;
-  }
-
   let callId: string;
+  let prompt: { id: string; systemPrompt: string } | null = null;
 
   if (direction === "inbound") {
+    prompt = await fetchActivePrompt().catch(() => null);
+    if (!prompt) {
+      console.error("[VoiceBot] No active prompt");
+      await channel.hangup().catch(() => undefined);
+      return;
+    }
     const row = await internalInbound(phone, prompt.id);
     callId = row.id;
     await channel.answer().catch(() => undefined);
   } else {
+    // Outbound: do NOT block on prompt-service before ringing. If prompt load
+    // failed pre-answer, we used to hang up immediately — user hears no ringback
+    // and the callee may never see the call.
     callId = outboundCallId;
     if (!callId) {
       console.error("[VoiceBot] outbound missing callId");
@@ -524,7 +527,16 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
       return;
     }
     console.log(`[VoiceBot] call=${callId} answered`);
+    prompt = await fetchActivePrompt().catch(() => null);
+    if (!prompt) {
+      console.error("[VoiceBot] No active prompt (outbound after answer)");
+      await channel.hangup().catch(() => undefined);
+      await finalizeCall(callId, { failureReason: "NO_ACTIVE_PROMPT" });
+      return;
+    }
   }
+
+  if (!prompt) return;
 
   await patchStatus(callId, "ANSWERED");
 
