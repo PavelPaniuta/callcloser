@@ -112,12 +112,23 @@ export class CallsService {
   }
 
   /**
-   * Той самий логікат що VAPI/Zadarma SIP: UA 0XXXXXXXXX для набору на транк.
+   * Набір на Zadarma / SIP-транк.
+   * Для України багато акаунтів Zadarma очікують міжнародний формат **380XXXXXXXXX** у Request-URI;
+   * національний **0XXXXXXXXX** іноді не доходить до GSM (у абонента немає дзвінка / пропущених).
+   * ZADARMA_OUTBOUND_FORMAT=national — примусово 0XXXXXXXXX (старий режим).
    */
   private normalizePhoneForZadarmaTrunk(phone: string): string {
     const digits = phone.replace(/\D/g, "");
-    if (digits.startsWith("380") && digits.length === 12) return `0${digits.slice(3)}`;
-    if (digits.startsWith("0") && digits.length === 10) return digits;
+    const national =
+      (process.env.ZADARMA_OUTBOUND_FORMAT ?? "international").toLowerCase() === "national";
+
+    if (digits.startsWith("380") && digits.length === 12) {
+      return national ? `0${digits.slice(3)}` : digits;
+    }
+    // UA mobile / landline in national form: 0XXXXXXXXX (10 digits)
+    if (digits.startsWith("0") && digits.length === 10) {
+      return national ? digits : `380${digits.slice(1)}`;
+    }
     if (digits.length >= 10 && digits.length <= 15) return digits;
     return phone.trim();
   }
