@@ -217,33 +217,43 @@ function recordSegment(
   silenceSec: number = RECORD_SILENCE_SEC,
 ): Promise<boolean> {
   return new Promise((resolve) => {
+    let settled = false;
+    const c = client as unknown as {
+      on: (e: string, cb: (...args: unknown[]) => void) => void;
+      removeListener: (e: string, cb: (...args: unknown[]) => void) => void;
+    };
+
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      c.removeListener("RecordingFinished", onFinished);
+      c.removeListener("RecordingFailed", onFailed);
+      resolve(value);
+    };
+
     const timer = setTimeout(() => {
       console.warn("[Record] timeout");
-      resolve(false);
+      finish(false);
     }, (RECORD_MAX_SEC + 5) * 1000);
 
-    (client as unknown as { on: (e: string, cb: (evt: { recording?: { name?: string; cause?: string; state?: string } }) => void) => void }).on(
-      "RecordingFinished",
-      (evt) => {
-        const rec = evt?.recording;
-        if (rec?.name === name) {
-          console.log(`[Record] finished name=${name} cause=${rec.cause} state=${rec.state}`);
-          clearTimeout(timer);
-          resolve(true);
-        }
-      },
-    );
+    function onFinished(evt: { recording?: { name?: string; cause?: string; state?: string } }) {
+      const rec = evt?.recording;
+      if (rec?.name === name) {
+        console.log(`[Record] finished name=${name} cause=${rec.cause} state=${rec.state}`);
+        finish(true);
+      }
+    }
 
-    (client as unknown as { on: (e: string, cb: (evt: { recording?: { name?: string } }) => void) => void }).on(
-      "RecordingFailed",
-      (evt) => {
-        if (evt?.recording?.name === name) {
-          clearTimeout(timer);
-          console.warn(`[Record] failed: ${name}`);
-          resolve(false);
-        }
-      },
-    );
+    function onFailed(evt: { recording?: { name?: string } }) {
+      if (evt?.recording?.name === name) {
+        console.warn(`[Record] failed: ${name}`);
+        finish(false);
+      }
+    }
+
+    c.on("RecordingFinished", onFinished);
+    c.on("RecordingFailed", onFailed);
 
     (channel as unknown as {
       record: (opts: Record<string, unknown>, cb: (err: unknown) => void) => void;
@@ -258,9 +268,8 @@ function recordSegment(
       },
       (err) => {
         if (err) {
-          clearTimeout(timer);
           console.warn(`[Record] start error: ${(err as Error)?.message ?? err}`);
-          resolve(false);
+          finish(false);
         }
       },
     );
@@ -574,19 +583,30 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
   if (!prompt) return;
 
   await channel.answer().catch(() => undefined);
-  await playConnectingTone(channel.id);
+
+  let hangupDetected = false;
+  channel.once("StasisEnd" as never, () => {
+    hangupDetected = true;
+  });
 
   await patchStatus(callId, "ANSWERED");
 
   const history: Array<{ role: "user" | "assistant"; content: string }> = [];
   let turnCount = 0;
-  let hangupDetected = false;
 
-  // Detect if caller hung up
-  channel.once("StasisEnd" as never, () => { hangupDetected = true; });
+  // Greeting LLM + short connecting tone in parallel — less dead air before first speech.
+  const voiceCtx = { systemPrompt: prompt.systemPrompt, history };
+  const [greeting] = await Promise.all([
+    runTurn(voiceCtx, "__greeting__"),
+    playConnectingTone(channel.id),
+  ]);
 
-  // ── Greeting ────────────────────────────────────────────────────────────
-  const greeting = await runTurn({ systemPrompt: prompt.systemPrompt, history }, "__greeting__");
+  if (hangupDetected) {
+    console.log(`[VoiceBot] call=${callId} remote hangup before greeting playback`);
+    await finalizeCall(callId, { failureReason: "REMOTE_HANGUP_EARLY" }).catch(() => undefined);
+    return;
+  }
+
   console.log(`[VoiceBot] call=${callId} greeting: ${greeting}`);
   history.push({ role: "assistant", content: greeting });
   await speak(client, channel, greeting);
