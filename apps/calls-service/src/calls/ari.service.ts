@@ -147,24 +147,25 @@ export class AriService implements OnModuleDestroy {
     );
     const context =
       process.env.ASTERISK_OUTBOUND_DIALPLAN_CONTEXT?.trim() || "crm-ari-outbound";
-    /** `endpoint` is required; ARI also requires `app` or (`extension`+`context`+`priority`) — include CEP with Local/… */
-    const body: Record<string, unknown> = {
+    /** Asterisk ARI reads originate parameters from the query string; body supports only `variables`. */
+    const params = new URLSearchParams({
       endpoint: `Local/${digits}@${context}`,
       extension: digits,
       context,
-      priority: 1,
-      timeout: timeoutSec,
+      priority: "1",
+      timeout: String(timeoutSec),
       formats: "ulaw,alaw",
-      variables: {
-        CRM_CALL_ID: callId,
-      },
-    };
-    if (callerId) body.callerId = callerId;
+    });
+    if (callerId) params.set("callerId", callerId);
     try {
-      const res = await fetch(`${base}/channels`, {
+      const res = await fetch(`${base}/channels?${params}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          variables: {
+            CRM_CALL_ID: callId,
+          },
+        }),
       });
       if (!res.ok) {
         this.log.warn(`ARI HTTP originate (dialplan) ${res.status}: ${await res.text()}`);
