@@ -160,7 +160,14 @@ export class AriService implements OnModuleDestroy {
       timeout: String(timeoutSec),
       formats: "ulaw,alaw",
     });
-    if (callerId) params.set("callerId", callerId);
+    /** Unverified CLI in Zadarma can break INVITE; set ASTERISK_ARI_OMIT_CALLER_ID=true to skip. */
+    if (
+      callerId &&
+      process.env.ASTERISK_ARI_OMIT_CALLER_ID !== "1" &&
+      process.env.ASTERISK_ARI_OMIT_CALLER_ID?.toLowerCase() !== "true"
+    ) {
+      params.set("callerId", callerId);
+    }
     try {
       const res = await fetch(`${base}/channels?${params}`, {
         method: "POST",
