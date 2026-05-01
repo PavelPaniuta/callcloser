@@ -368,27 +368,80 @@ async function fetchRecording(name: string): Promise<Buffer | null> {
 
 // ── Answer detection ─────────────────────────────────────────────────────────
 
-function waitForAnswer(client: AriClient, channel: Channel): Promise<boolean> {
+async function fetchChannelState(channelId: string): Promise<string | null> {
+  const auth = `Basic ${Buffer.from(`${ariUser()}:${ariPass()}`).toString("base64")}`;
+  try {
+    const r = await fetch(`${ariBase()}/channels/${encodeURIComponent(channelId)}`, {
+      headers: { Authorization: auth },
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { state?: string };
+    return j.state ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Outbound: never trust initial snapshot — Stasis can report Up before callee picks up (early media / race).
+ * Poll REST + WS until state is Up twice ~350ms apart (debounce).
+ */
+function waitForAnswer(
+  client: AriClient,
+  channel: Channel,
+  opts: { outbound?: boolean } = {},
+): Promise<boolean> {
+  const outbound = opts.outbound ?? false;
+
   return new Promise((resolve) => {
     const ch = channel as unknown as { state?: string };
-    if (ch.state === "Up") { resolve(true); return; }
+    if (!outbound && ch.state === "Up") {
+      resolve(true);
+      return;
+    }
 
     let done = false;
+    let pollIv: ReturnType<typeof setInterval> | undefined;
+    let firstUpAt = 0;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (pollIv) clearInterval(pollIv);
+      client.removeListener("ChannelStateChange", stateHandler as never);
+      client.removeListener("StasisEnd", endHandler as never);
+    };
+
     const finish = (result: boolean) => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
-      client.removeListener("ChannelStateChange", stateHandler as never);
-      client.removeListener("StasisEnd", endHandler as never);
+      cleanup();
       resolve(result);
     };
 
     const timer = setTimeout(() => finish(false), ANSWER_TIMEOUT_MS);
 
+    function considerUpFromRest(state: string | null) {
+      if (state !== "Up") {
+        firstUpAt = 0;
+        return;
+      }
+      const now = Date.now();
+      if (!firstUpAt) {
+        firstUpAt = now;
+        return;
+      }
+      if (now - firstUpAt >= 350) finish(true);
+    }
+
     function stateHandler(_: unknown, ch2: Channel) {
       if (ch2.id !== channel.id) return;
       const s = (ch2 as unknown as { state?: string }).state;
-      if (s === "Up") finish(true);
+      if (s === "Up") {
+        if (!outbound) finish(true);
+        else considerUpFromRest("Up");
+      } else if (outbound && s && s !== "Up") {
+        firstUpAt = 0;
+      }
     }
 
     function endHandler(_: unknown, ch2: Channel) {
@@ -400,6 +453,15 @@ function waitForAnswer(client: AriClient, channel: Channel): Promise<boolean> {
 
     client.on("ChannelStateChange" as never, stateHandler as never);
     client.on("StasisEnd" as never, endHandler as never);
+
+    if (outbound) {
+      pollIv = setInterval(() => {
+        void fetchChannelState(channel.id).then((st) => {
+          if (st === "Up") considerUpFromRest(st);
+          else firstUpAt = 0;
+        });
+      }, 300);
+    }
   });
 }
 
@@ -482,7 +544,7 @@ async function handleVapiOutbound(
 ): Promise<void> {
   console.log(`[VAPI-Bridge] call=${callId} waiting for customer answer...`);
 
-  const answered = await waitForAnswer(client, customerChannel);
+  const answered = await waitForAnswer(client, customerChannel, { outbound: true });
   if (!answered) {
     console.log(`[VAPI-Bridge] call=${callId} NO_ANSWER`);
     await customerChannel.hangup().catch(() => undefined);
@@ -637,7 +699,7 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
       return;
     }
     console.log(`[VoiceBot] call=${callId} waiting for answer...`);
-    const answered = await waitForAnswer(client, channel);
+    const answered = await waitForAnswer(client, channel, { outbound: true });
     if (!answered) {
       console.log(`[VoiceBot] call=${callId} NO_ANSWER`);
       await channel.hangup().catch(() => undefined);
@@ -656,9 +718,10 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
 
   if (!prompt) return;
 
-  // Outbound leg is already Up when the callee answers; extra answer() can confuse some SIP paths.
-  if (direction === "inbound") {
-    await channel.answer().catch(() => undefined);
+  await channel.answer().catch(() => undefined);
+  if (direction === "outbound") {
+    const ms = Number(process.env.VOICEBOT_POST_ANSWER_DELAY_MS ?? "700");
+    await new Promise((r) => setTimeout(r, Number.isFinite(ms) && ms >= 0 ? ms : 700));
   }
 
   let hangupDetected = false;
