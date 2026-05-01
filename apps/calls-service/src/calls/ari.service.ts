@@ -144,15 +144,18 @@ export class AriService implements OnModuleDestroy {
   }
 
   private async resolveEndpoint(phone: string): Promise<string> {
-    const envEndpoint = process.env.ASTERISK_OUTBOUND_ENDPOINT;
-    if (envEndpoint?.includes("${phone}")) {
-      return envEndpoint.replaceAll("${phone}", phone);
-    }
-    if (envEndpoint) {
-      return envEndpoint;
-    }
+    // ASTERISK_OUTBOUND_TRUNK — just the trunk/endpoint name, e.g. "trunk-zadarma"
+    // Avoid ASTERISK_OUTBOUND_ENDPOINT with ${phone} template because PM2 dotenv
+    // expands ${phone} to empty string at startup, producing PJSIP/@trunk-zadarma.
+    const trunk =
+      process.env.ASTERISK_OUTBOUND_TRUNK ||
+      (await this.resolveDbTrunk()) ||
+      "trunk-zadarma";
+    return `PJSIP/${phone}@${trunk}`;
+  }
 
-    const trunk = await prisma.sipTrunk.findFirst({
+  private async resolveDbTrunk(): Promise<string | null> {
+    const row = await prisma.sipTrunk.findFirst({
       where: {
         isDefault: true,
         provider: {
@@ -162,8 +165,6 @@ export class AriService implements OnModuleDestroy {
       },
       orderBy: { updatedAt: "desc" },
     });
-
-    if (!trunk) return `PJSIP/${phone}@trunk`;
-    return `PJSIP/${phone}@${trunk.endpointName}`;
+    return row?.endpointName ?? null;
   }
 }
