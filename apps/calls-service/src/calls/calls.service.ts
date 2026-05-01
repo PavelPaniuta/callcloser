@@ -154,10 +154,19 @@ export class CallsService {
 
     await this.transition(call.id, CallStatus.QUEUED);
 
-    // ── Asterisk ARI path (оба режима) ────────────────────────────────────
-    // "asterisk": Asterisk звонит через Zadarma, наш пайплайн ASR/GPT/TTS
-    // "vapi":     Asterisk звонит через Zadarma, при ответе SIP-мост к VAPI AI
-    const direction = input.engine === "vapi" ? "outbound-vapi" : "outbound";
+    // ── Asterisk ARI ───────────────────────────────────────────────────────
+    // За замовчуванням лише власний пайплайн (Zadarma → Stasis → GPT/TTS).
+    // VAPI-міст увімкнути окремо: OUTBOUND_USE_VAPI=true у .env (і engine=vapi у запиті).
+    const vapiAllowed =
+      process.env.OUTBOUND_USE_VAPI === "true" ||
+      process.env.OUTBOUND_USE_VAPI === "1";
+    let direction = "outbound";
+    if (vapiAllowed && input.engine === "vapi") direction = "outbound-vapi";
+    else if (input.engine === "vapi" && !vapiAllowed) {
+      this.log.warn(
+        `createOutbound ${call.id}: engine=vapi ignored (set OUTBOUND_USE_VAPI=true to enable); using Asterisk GPT/TTS`,
+      );
+    }
     const dialPhone = this.normalizePhoneForZadarmaTrunk(input.phone);
     const orig = await this.ari.originateOutbound(dialPhone, call.id, direction);
     if (!orig?.uniqueId) {

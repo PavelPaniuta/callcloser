@@ -127,7 +127,6 @@ export default function CampaignsPage() {
   const [promptId, setPromptId] = useState("");
   const [campaignName, setCampaignName] = useState("");
   const [assistantLabel, setAssistantLabel] = useState("");
-  const [engine, setEngine] = useState<"asterisk" | "vapi">("asterisk");
   const [concurrency, setConcurrency] = useState(3);
   const [maxAttempts, setMaxAttempts] = useState(2);
   const [retryDelayMs, setRetryDelayMs] = useState(1500);
@@ -211,7 +210,7 @@ export default function CampaignsPage() {
           name: campaignName || undefined,
           assistantLabel: assistantLabel || undefined,
           promptVersionId: promptId,
-          engine,
+          engine: "asterisk",
           leads,
           concurrency,
           maxAttempts,
@@ -353,22 +352,11 @@ export default function CampaignsPage() {
                   fullWidth
                 />
               </Box>
-              <Box>
-                <TextField
-                  select
-                  label="Движок звонков"
-                  value={engine}
-                  onChange={(e) => setEngine(e.target.value as "asterisk" | "vapi")}
-                  fullWidth
-                  helperText={
-                    engine === "vapi"
-                      ? "VAPI.ai — внешний AI (требует настройки в Settings)"
-                      : "Asterisk + OpenAI — собственный сервис"
-                  }
-                >
-                  <MenuItem value="asterisk">🔧 Asterisk (свой сервис)</MenuItem>
-                  <MenuItem value="vapi">⚡ VAPI.ai</MenuItem>
-                </TextField>
+              <Box sx={{ py: 0.5 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Движок: Asterisk + GPT/TTS (свой сервис). VAPI отключён на сервере до отдельной настройки (
+                  <code>OUTBOUND_USE_VAPI=true</code>).
+                </Typography>
               </Box>
               <Box>
                 <TextField
