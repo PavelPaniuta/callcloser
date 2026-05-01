@@ -44,7 +44,7 @@
 - Конфиги: [asterisk/config](asterisk/config). Пользователь ARI: `crm` / `crm_secret_change_me` (смените в проде).
 - Stasis-приложение: `crm-voice` (совпадает с `ASTERISK_ARI_APP`).
 - **VoiceBot**: `npx pnpm@9.14.2 --filter @crm/voicebot dev` при заданных `ASTERISK_ARI_URL`, `ASTERISK_ARI_PASS`.
-- Исходящий endpoint по умолчанию: `PJSIP/{номер}@trunk` — задайте `ASTERISK_OUTBOUND_ENDPOINT` под ваш PJSIP.
+- Исходящий набор Zadarma (как в [официальном мануале](https://zadarma.com/en/support/instructions/asteriskpjsip/)): `PJSIP/{номер}@trunk-zadarma`; имя транка — `ASTERISK_OUTBOUND_TRUNK` в `.env`, должно совпадать с секцией `[trunk-zadarma]` в `pjsip.conf`.
 
 ## Интеграция ИИ (закрытый контур)
 

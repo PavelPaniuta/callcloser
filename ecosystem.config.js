@@ -1,67 +1,67 @@
 // PM2 process manager config for production VPS deployment
-// NestJS apps run from compiled dist/main.js
-// tsx apps (voicebot, tts, analytics) run via globally installed tsx
-// Usage: pm2 start ecosystem.config.js
+// Set APP_DIR before start: export APP_DIR=/opt/callcloser (default below)
+// Usage: cd $APP_DIR && pm2 start ecosystem.config.js
+const APP_DIR = process.env.APP_DIR || "/opt/callcloser";
+
 module.exports = {
   apps: [
     {
       name: "gateway",
-      cwd: "/opt/callcloser/apps/gateway",
+      cwd: `${APP_DIR}/apps/gateway`,
       script: "node",
       args: "dist/main.js",
-      env_file: "/opt/callcloser/.env",
+      env_file: `${APP_DIR}/.env`,
       max_memory_restart: "512M",
       restart_delay: 3000,
       watch: false,
     },
     {
       name: "crm-service",
-      cwd: "/opt/callcloser/apps/crm-service",
+      cwd: `${APP_DIR}/apps/crm-service`,
       script: "node",
       args: "dist/main.js",
-      env_file: "/opt/callcloser/.env",
+      env_file: `${APP_DIR}/.env`,
       max_memory_restart: "512M",
       restart_delay: 3000,
       watch: false,
     },
     {
       name: "calls-service",
-      cwd: "/opt/callcloser/apps/calls-service",
+      cwd: `${APP_DIR}/apps/calls-service`,
       script: "node",
       args: "dist/main.js",
-      env_file: "/opt/callcloser/.env",
+      env_file: `${APP_DIR}/.env`,
       max_memory_restart: "512M",
       restart_delay: 3000,
       watch: false,
     },
     {
       name: "prompt-service",
-      cwd: "/opt/callcloser/apps/prompt-service",
+      cwd: `${APP_DIR}/apps/prompt-service`,
       script: "node",
       args: "dist/main.js",
-      env_file: "/opt/callcloser/.env",
+      env_file: `${APP_DIR}/.env`,
       max_memory_restart: "256M",
       restart_delay: 3000,
       watch: false,
     },
     {
       name: "tts-service",
-      cwd: "/opt/callcloser/apps/tts-service",
+      cwd: `${APP_DIR}/apps/tts-service`,
       script: "node",
       args: "dist/index.js",
-      env_file: "/opt/callcloser/.env",
+      env_file: `${APP_DIR}/.env`,
       max_memory_restart: "256M",
       restart_delay: 3000,
       watch: false,
     },
     {
       name: "voicebot",
-      cwd: "/opt/callcloser/apps/voicebot",
+      cwd: `${APP_DIR}/apps/voicebot`,
       script: "node",
       args: "dist/index.js",
-      env_file: "/opt/callcloser/.env",
+      env_file: `${APP_DIR}/.env`,
       env: {
-        // PM2 already runs a single instance; TCP singleton would kill peer on restart
         VOICEBOT_DISABLE_SINGLETON: "1",
       },
       max_memory_restart: "512M",
@@ -70,20 +70,20 @@ module.exports = {
     },
     {
       name: "analytics-worker",
-      cwd: "/opt/callcloser/apps/analytics-worker",
+      cwd: `${APP_DIR}/apps/analytics-worker`,
       script: "node",
       args: "dist/main.js",
-      env_file: "/opt/callcloser/.env",
+      env_file: `${APP_DIR}/.env`,
       max_memory_restart: "256M",
       restart_delay: 3000,
       watch: false,
     },
     {
       name: "web",
-      cwd: "/opt/callcloser/apps/web",
+      cwd: `${APP_DIR}/apps/web`,
       script: "node_modules/next/dist/bin/next",
       args: "start -p 3000",
-      env_file: "/opt/callcloser/.env",
+      env_file: `${APP_DIR}/.env`,
       env: { PORT: "3000", NODE_ENV: "production" },
       max_memory_restart: "512M",
       restart_delay: 3000,

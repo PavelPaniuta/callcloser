@@ -1,9 +1,11 @@
 #!/bin/bash
-# update.sh — pull latest code and restart services
-# Run on VPS: bash /opt/callcloser/update.sh
+# update.sh — pull latest code, DB push, rebuild, PM2 reload
+# На VPS: export APP_DIR=/opt/callcloser  # за потреби
+#         bash "$APP_DIR/update.sh"
 set -e
-APP_DIR="/opt/callcloser"
+APP_DIR="${APP_DIR:-/opt/callcloser}"
 cd "$APP_DIR"
+export APP_DIR
 
 echo "Pulling latest code..."
 git pull
@@ -14,26 +16,14 @@ pnpm install --frozen-lockfile
 echo "Loading env..."
 set -a; source "$APP_DIR/.env"; set +a
 
-echo "Applying DB schema changes..."
+echo "Applying DB schema..."
 cd packages/db
 npx prisma db push --accept-data-loss
 npx prisma generate
 cd "$APP_DIR"
 
-echo "Rebuilding gateway..."
-pnpm --filter @crm/gateway build
-
-echo "Rebuilding calls-service..."
-pnpm --filter @crm/calls-service build
-
-echo "Rebuilding voicebot..."
-pnpm --filter @crm/voicebot build
-
-echo "Rebuilding analytics-worker..."
-pnpm --filter @crm/analytics-worker build
-
-echo "Rebuilding web..."
-pnpm --filter @crm/web build
+echo "Building all packages..."
+pnpm run build
 
 echo "Reloading PM2..."
 pm2 reload all
@@ -41,4 +31,5 @@ pm2 reload all
 pm2 status
 
 echo "✅ Update complete"
-echo "Tip: Docker Compose v2+ is \`docker compose\` (plugin). Avoid legacy \`docker-compose\` 1.29 on this server — it breaks recreate on some images."
+echo "Tip: після змін asterisk/config:"
+echo "  cd $APP_DIR && docker compose exec -T asterisk asterisk -rx \"dialplan reload\" && docker compose exec -T asterisk asterisk -rx \"pjsip reload\""

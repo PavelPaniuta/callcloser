@@ -2,6 +2,7 @@
   "name": "crm-asterisk-ai",
   "private": true,
   "scripts": {
+    "postinstall": "pnpm --filter @crm/db exec prisma generate",
     "build": "pnpm -r run build",
     "dev:gateway": "pnpm --filter @crm/gateway dev",
     "dev:crm": "pnpm --filter @crm/crm-service dev",
@@ -13,7 +14,8 @@
     "db:generate": "pnpm --filter @crm/db prisma generate",
     "db:push": "pnpm --filter @crm/db prisma db push",
     "db:seed": "pnpm --filter @crm/db exec prisma db seed",
-    "db:studio": "pnpm --filter @crm/db prisma studio"
+    "db:studio": "pnpm --filter @crm/db prisma studio",
+    "docker:stack": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/docker-stack.ps1"
   },
   "engines": {
     "node": ">=20"

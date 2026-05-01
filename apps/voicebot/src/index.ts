@@ -627,8 +627,7 @@ async function handleVapiOutbound(
   pendingVapiBridges.set(vapiChanId, bridgeId);
 
   const appName = process.env.ASTERISK_ARI_APP ?? "crm-voice";
-  // Must use PJSIP/<user>@trunk-vapi so INVITE goes to sip.vapi.ai (pjsip.conf), not via
-  // default_outbound_endpoint (trunk-zadarma). Raw PJSIP/sip:user@... often fails with ARI 500 "Allocation failed".
+  // Must use PJSIP/<user>@trunk-vapi so INVITE goes to sip.vapi.ai (pjsip.conf); Zadarma PSTN uses PJSIP/<num>@trunk-zadarma per official dialplan.
   const vapiEndpoint = buildVapiPjsipEndpoint(vapiSipUri);
   console.log(`[VAPI-Bridge] originate VAPI leg endpoint=${vapiEndpoint}`);
   const origRes = await ariPost(`/channels/${vapiChanId}`, {

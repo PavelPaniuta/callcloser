@@ -94,13 +94,19 @@ export class AriService implements OnModuleDestroy {
     }
   }
 
-  /** Digits-only E.164-style CLI — leading "+" in .env breaks some ITSP INVITEs. */
+  /**
+   * Outbound CLI for ARI `callerId`. Leading "+" in .env breaks some loaders (use digits only there).
+   * Default: digits only — many ITSPs (Zadarma included) handle this more reliably than `"Name" <n>`.
+   * Set ASTERISK_OUTBOUND_CALLER_ID_STYLE=named for `"CRM" <digits>`.
+   */
   private normalizeSipCallerId(raw: string): string {
     const t = raw.trim();
     if (t.includes("<") && t.includes(">")) return t;
     const digits = t.replace(/\D/g, "");
     if (!digits) return t;
-    return `"CRM" <${digits}>`;
+    const style = (process.env.ASTERISK_OUTBOUND_CALLER_ID_STYLE ?? "digits").toLowerCase();
+    if (style === "named" || style === "crm") return `"CRM" <${digits}>`;
+    return digits;
   }
 
   /** Prefer HTTP originate: explicit timeout, same JSON Asterisk documents (ari-client omits timeout). */
@@ -198,9 +204,12 @@ export class AriService implements OnModuleDestroy {
     this.client = null;
   }
 
+  /**
+   * Zadarma PBX manual — same dial string as extensions.conf [zadarma-out]:
+   * `Dial(PJSIP/${EXTEN}@…)` → ARI `PJSIP/{digits}@{trunk}`.
+   * @see https://zadarma.com/en/support/instructions/asteriskpjsip/
+   */
   private async resolveEndpoint(phone: string): Promise<string> {
-    // ASTERISK_OUTBOUND_TRUNK — PJSIP endpoint name (auth / AOR), e.g. trunk-zadarma
-    // Avoid ASTERISK_OUTBOUND_ENDPOINT with ${phone} template — PM2/dotenv expands ${phone} to empty.
     const trunk =
       process.env.ASTERISK_OUTBOUND_TRUNK ||
       (await this.resolveDbTrunk()) ||
@@ -209,17 +218,6 @@ export class AriService implements OnModuleDestroy {
     if (!digits) {
       this.log.warn(`resolveEndpoint: no digits in "${phone}", fallback PJSIP literal`);
       return `PJSIP/${phone}@${trunk}`;
-    }
-
-    // Default: PJSIP/<digits>@<trunk> (works with ARI originate + Zadarma on this stack).
-    // Optional: ASTERISK_OUTBOUND_DIAL_STYLE=sip-uri — some installs need it; here it returned "Allocation failed".
-    const style = (process.env.ASTERISK_OUTBOUND_DIAL_STYLE ?? "endpoint").toLowerCase();
-    if (style === "sip-uri" || style === "zadarma") {
-      const sipHost =
-        process.env.ZADARMA_PBX_HOST?.trim() ||
-        process.env.ASTERISK_OUTBOUND_SIP_HOST?.trim() ||
-        "pbx.zadarma.com";
-      return `PJSIP/sip:${digits}@${sipHost}`;
     }
     return `PJSIP/${digits}@${trunk}`;
   }
