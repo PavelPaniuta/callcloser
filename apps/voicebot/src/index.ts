@@ -382,9 +382,18 @@ async function fetchChannelState(channelId: string): Promise<string | null> {
   }
 }
 
+/** Outbound SIP is often already Up when the callee picks up; POST /answer then returns 409 and may confuse media. */
+async function answerIfRinging(channel: Channel): Promise<void> {
+  const st = await fetchChannelState(channel.id);
+  if (st !== "Ringing") return;
+  await channel.answer().catch((e) =>
+    console.warn(`[VoiceBot] answerIfRinging: ${(e as Error)?.message ?? e}`),
+  );
+}
+
 /**
- * Outbound: never trust initial snapshot — Stasis can report Up before callee picks up (early media / race).
- * Poll REST + WS until state is Up twice ~350ms apart (debounce).
+ * Outbound: never trust a single "Up" — early media / races. Require REST+WS observations
+ * showing Up continuously for VOICEBOT_OUTBOUND_ANSWER_STABLE_MS (default 1000ms).
  */
 function waitForAnswer(
   client: AriClient,
@@ -392,6 +401,10 @@ function waitForAnswer(
   opts: { outbound?: boolean } = {},
 ): Promise<boolean> {
   const outbound = opts.outbound ?? false;
+  const stableMs = Math.max(
+    400,
+    Number(process.env.VOICEBOT_OUTBOUND_ANSWER_STABLE_MS ?? "1000") || 1000,
+  );
 
   return new Promise((resolve) => {
     const ch = channel as unknown as { state?: string };
@@ -402,7 +415,8 @@ function waitForAnswer(
 
     let done = false;
     let pollIv: ReturnType<typeof setInterval> | undefined;
-    let firstUpAt = 0;
+    /** First instant we saw continuous Up; reset on any non-Up. */
+    let upSince = 0;
 
     const cleanup = () => {
       clearTimeout(timer);
@@ -420,17 +434,17 @@ function waitForAnswer(
 
     const timer = setTimeout(() => finish(false), ANSWER_TIMEOUT_MS);
 
-    function considerUpFromRest(state: string | null) {
+    function observeState(state: string | null) {
       if (state !== "Up") {
-        firstUpAt = 0;
+        upSince = 0;
         return;
       }
       const now = Date.now();
-      if (!firstUpAt) {
-        firstUpAt = now;
+      if (!upSince) {
+        upSince = now;
         return;
       }
-      if (now - firstUpAt >= 350) finish(true);
+      if (now - upSince >= stableMs) finish(true);
     }
 
     function stateHandler(_: unknown, ch2: Channel) {
@@ -438,9 +452,9 @@ function waitForAnswer(
       const s = (ch2 as unknown as { state?: string }).state;
       if (s === "Up") {
         if (!outbound) finish(true);
-        else considerUpFromRest("Up");
+        else observeState("Up");
       } else if (outbound && s && s !== "Up") {
-        firstUpAt = 0;
+        upSince = 0;
       }
     }
 
@@ -455,12 +469,9 @@ function waitForAnswer(
     client.on("StasisEnd" as never, endHandler as never);
 
     if (outbound) {
-      pollIv = setInterval(() => {
-        void fetchChannelState(channel.id).then((st) => {
-          if (st === "Up") considerUpFromRest(st);
-          else firstUpAt = 0;
-        });
-      }, 300);
+      const poll = () => void fetchChannelState(channel.id).then((st) => observeState(st));
+      poll();
+      pollIv = setInterval(poll, 300);
     }
   });
 }
@@ -552,7 +563,7 @@ async function handleVapiOutbound(
     return;
   }
   console.log(`[VAPI-Bridge] call=${callId} answered`);
-  await customerChannel.answer().catch(() => undefined);
+  await answerIfRinging(customerChannel);
   await playConnectingTone(customerChannel.id);
 
   await patchStatus(callId, "ANSWERED");
@@ -718,7 +729,11 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
 
   if (!prompt) return;
 
-  await channel.answer().catch(() => undefined);
+  if (direction === "outbound") {
+    await answerIfRinging(channel);
+  } else {
+    await channel.answer().catch(() => undefined);
+  }
   if (direction === "outbound") {
     const ms = Number(process.env.VOICEBOT_POST_ANSWER_DELAY_MS ?? "700");
     await new Promise((r) => setTimeout(r, Number.isFinite(ms) && ms >= 0 ? ms : 700));
