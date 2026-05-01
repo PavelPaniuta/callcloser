@@ -53,39 +53,91 @@ export class AriService implements OnModuleDestroy {
     direction: string = "outbound",
     extraArgs: string[] = [],
   ): Promise<{ uniqueId?: string; channelId?: string } | null> {
-    const client = await this.getClient();
-    if (!client) return null;
+    if (!this.isEnabled()) return null;
 
     const endpoint = await this.resolveEndpoint(phone);
+    const appArgs = [direction, phone, callId, ...extraArgs].join(",");
+    const rawCid =
+      process.env.ASTERISK_OUTBOUND_CALLER_ID?.trim() ||
+      process.env.ZADARMA_CALLER_ID?.trim();
+    const callerId = rawCid ? this.normalizeSipCallerId(rawCid) : undefined;
+
+    const http = await this.originateOutboundHttp(endpoint, appArgs, callerId);
+    if (http) {
+      this.log.log(
+        `ARI originate ok callId=${callId} channel=${http.id} endpoint=${endpoint} direction=${direction} callerId=${callerId ?? "default"}`,
+      );
+      return { uniqueId: http.id, channelId: http.id };
+    }
+
+    const client = await this.getClient();
+    if (!client) return null;
     try {
-      const appArgs = [direction, phone, callId, ...extraArgs].join(",");
-      // Never use callee as Caller-ID — Zadarma (and most ITSPs) reject it.
-      // PJSIP from_user / optional ASTERISK_OUTBOUND_CALLER_ID supply CLI.
       const opts: {
         endpoint: string;
         app: string;
         appArgs: string;
         callerId?: string;
       } = { endpoint, app: this.app, appArgs };
-      const cid =
-        process.env.ASTERISK_OUTBOUND_CALLER_ID?.trim() ||
-        process.env.ZADARMA_CALLER_ID?.trim();
-      if (cid) {
-        opts.callerId = cid.includes("<") ? cid : `"CRM" <${cid}>`;
-      }
+      if (callerId) opts.callerId = callerId;
       const channel = await client.channels.originate(opts);
       this.log.log(
         `ARI originate ok callId=${callId} channel=${channel.id} endpoint=${endpoint} direction=${direction}`,
       );
-      return {
-        uniqueId: channel.id,
-        channelId: channel.id,
-      };
+      return { uniqueId: channel.id, channelId: channel.id };
     } catch (e: unknown) {
       const msg = (e as Error)?.message ?? String(e);
       this.log.warn(
         `originate failed endpoint=${endpoint}: ${msg}. Check Zadarma SIP password in pjsip + pjsip show registrations`,
       );
+      return null;
+    }
+  }
+
+  /** Digits-only E.164-style CLI — leading "+" in .env breaks some ITSP INVITEs. */
+  private normalizeSipCallerId(raw: string): string {
+    const t = raw.trim();
+    if (t.includes("<") && t.includes(">")) return t;
+    const digits = t.replace(/\D/g, "");
+    if (!digits) return t;
+    return `"CRM" <${digits}>`;
+  }
+
+  /** Prefer HTTP originate: explicit timeout, same JSON Asterisk documents (ari-client omits timeout). */
+  private async originateOutboundHttp(
+    endpoint: string,
+    appArgs: string,
+    callerId?: string,
+  ): Promise<{ id: string } | null> {
+    const base = this.url.replace(/\/$/, "");
+    if (!base) return null;
+    const auth = Buffer.from(`${this.user}:${this.pass}`).toString("base64");
+    const timeoutSec = Math.min(
+      300,
+      Math.max(30, Number(process.env.ASTERISK_ARI_ORIGINATE_TIMEOUT_SEC ?? 120) || 120),
+    );
+    const body: Record<string, unknown> = {
+      endpoint,
+      app: this.app,
+      appArgs,
+      timeout: timeoutSec,
+    };
+    if (callerId) body.callerId = callerId;
+    try {
+      const res = await fetch(`${base}/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        this.log.warn(`ARI HTTP originate ${res.status}: ${await res.text()}`);
+        return null;
+      }
+      const j = (await res.json()) as { id?: string };
+      if (!j.id) return null;
+      return { id: j.id };
+    } catch (e: unknown) {
+      this.log.warn(`ARI HTTP originate error: ${(e as Error)?.message ?? e}`);
       return null;
     }
   }

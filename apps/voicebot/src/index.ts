@@ -408,8 +408,8 @@ function waitForAnswer(
   );
   const requireRing =
     outbound &&
-    process.env.VOICEBOT_OUTBOUND_REQUIRE_RING !== "0" &&
-    process.env.VOICEBOT_OUTBOUND_REQUIRE_RING !== "false";
+    (process.env.VOICEBOT_OUTBOUND_REQUIRE_RING === "1" ||
+      process.env.VOICEBOT_OUTBOUND_REQUIRE_RING === "true");
 
   return new Promise((resolve) => {
     const ch = channel as unknown as { state?: string };
