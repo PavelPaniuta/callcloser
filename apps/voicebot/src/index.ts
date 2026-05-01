@@ -392,9 +392,10 @@ async function answerIfRinging(channel: Channel): Promise<void> {
 }
 
 /**
- * Outbound: debounce Up (VOICEBOT_OUTBOUND_ANSWER_STABLE_MS). Optionally require Ring/Ringing
- * before accepting Up — avoids "fake answer" when PSTN never alerted the handset (no missed call).
- * Disable: VOICEBOT_OUTBOUND_REQUIRE_RING=0
+ * Outbound: debounce Up (VOICEBOT_OUTBOUND_ANSWER_STABLE_MS). Optionally require a “progress”
+ * state before accepting Up. Many trunks (incl. Zadarma) never expose Ring/Ringing in ARI — only
+ * Dialing / Early / Proceeding; those count when VOICEBOT_OUTBOUND_REQUIRE_RING is on.
+ * Disable guard completely: VOICEBOT_OUTBOUND_REQUIRE_RING=0
  */
 function waitForAnswer(
   client: AriClient,
@@ -422,8 +423,8 @@ function waitForAnswer(
     let pollIv: ReturnType<typeof setInterval> | undefined;
     /** First instant we saw continuous Up; reset on any non-Up. */
     let upSince = 0;
-    /** PSTN alerted — Ring/Ringing seen (not Dialing alone: some trunks go Dial→Up without real ring). */
-    let sawRing = false;
+    /** Outbound leg left idle — Ringing, or Dialing/Early (Zadarma often skips Ring in ARI). */
+    let sawAlerting = false;
     let skipUpLog = false;
 
     const cleanup = () => {
@@ -437,9 +438,9 @@ function waitForAnswer(
       if (done) return;
       done = true;
       cleanup();
-      if (!result && outbound && requireRing && !sawRing) {
+      if (!result && outbound && requireRing && !sawAlerting) {
         console.warn(
-          `[waitForAnswer] channel=${channel.id} no answer: never saw Ring/Ringing (PSTN may not have rung the phone). Set VOICEBOT_OUTBOUND_REQUIRE_RING=0 to allow Up without ring.`,
+          `[waitForAnswer] channel=${channel.id} no answer: never saw Dialing/Early/Proceeding/Ring (set VOICEBOT_OUTBOUND_REQUIRE_RING=0 to allow Up only).`,
         );
       }
       resolve(result);
@@ -448,7 +449,17 @@ function waitForAnswer(
     const timer = setTimeout(() => finish(false), ANSWER_TIMEOUT_MS);
 
     function noteState(state: string | null) {
-      if (state === "Ring" || state === "Ringing") sawRing = true;
+      if (!state) return;
+      // ITSPs differ: some send Ring; Zadarma/PJSIP outbound often only Dialing → Up.
+      if (
+        state === "Ring" ||
+        state === "Ringing" ||
+        state === "Dialing" ||
+        state === "Early" ||
+        state === "Proceeding"
+      ) {
+        sawAlerting = true;
+      }
     }
 
     function observeState(state: string | null) {
@@ -457,11 +468,11 @@ function waitForAnswer(
         upSince = 0;
         return;
       }
-      if (requireRing && !sawRing) {
+      if (requireRing && !sawAlerting) {
         if (!skipUpLog) {
           skipUpLog = true;
           console.warn(
-            `[waitForAnswer] channel=${channel.id} ignoring Up until Ring/Ringing is seen (outbound guard)`,
+            `[waitForAnswer] channel=${channel.id} ignoring Up until Dialing/Ring… is seen (outbound guard)`,
           );
         }
         return;
@@ -497,7 +508,7 @@ function waitForAnswer(
     client.on("StasisEnd" as never, endHandler as never);
 
     if (outbound) {
-      const pollMs = requireRing && !sawRing ? 200 : 300;
+      const pollMs = requireRing && !sawAlerting ? 200 : 300;
       const poll = () => void fetchChannelState(channel.id).then((st) => observeState(st));
       poll();
       pollIv = setInterval(poll, pollMs);
