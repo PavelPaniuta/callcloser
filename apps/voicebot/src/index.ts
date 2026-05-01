@@ -323,7 +323,9 @@ function waitForAnswer(client: AriClient, channel: Channel): Promise<boolean> {
 // ── VAPI Bridge helpers ──────────────────────────────────────────────────────
 // Coordination: when the VAPI SIP leg enters Stasis, we look up the bridge here
 // and immediately add it — no polling needed.
-const pendingVapiBridges = new Map<string, string>(); // vapiChannelId → bridgeId
+const pendingVapiBridges = new Map<string, string>(); // vapiChannelId → bridgeId (legacy)
+/** Customer channel id to add after VAPI leg joins (avoid lone callee in empty mixing bridge). */
+const pendingBridgeCustomers = new Map<string, string>(); // bridgeId → customerChannelId
 
 function ariAuth(): string {
   return `Basic ${Buffer.from(`${ariUser()}:${ariPass()}`).toString("base64")}`;
@@ -345,26 +347,36 @@ async function ariDelete(path: string): Promise<void> {
 }
 
 /**
- * Called when the second (VAPI SIP) leg enters Stasis.
- * Adds it to the bridge that was created by the customer-leg handler.
+ * Called when the VAPI SIP leg enters Stasis.
+ * Adds VAPI to the bridge first, then the customer — ordering avoids some PSTN UEs dropping when bridged alone before media is ready.
  */
 async function handleVapiBridgeLeg(channel: Channel, bridgeId: string): Promise<void> {
   console.log(`[VAPI-Bridge] SIP leg channel=${channel.id} joining bridge=${bridgeId}`);
   const r = await ariPost(`/bridges/${bridgeId}/addChannel`, { channel: channel.id });
   if (!r.ok) {
-    console.warn(`[VAPI-Bridge] addChannel failed: ${r.status} ${await r.text()}`);
+    console.warn(`[VAPI-Bridge] addChannel(vapi) failed: ${r.status} ${await r.text()}`);
+    return;
   }
-  // This handler simply exits — the customer-leg handler owns call lifecycle.
+  const custId = pendingBridgeCustomers.get(bridgeId);
+  if (!custId) {
+    console.warn(`[VAPI-Bridge] no pending customer for bridge=${bridgeId}`);
+    return;
+  }
+  const r2 = await ariPost(`/bridges/${bridgeId}/addChannel`, { channel: custId });
+  pendingBridgeCustomers.delete(bridgeId);
+  if (!r2.ok) {
+    console.warn(`[VAPI-Bridge] addChannel(customer) failed: ${r2.status} ${await r2.text()}`);
+    return;
+  }
+  console.log(`[VAPI-Bridge] bridge=${bridgeId} mixed customer=${custId} + vapi=${channel.id}`);
 }
 
 /**
  * Full Asterisk-dials + VAPI-AI bridge call flow:
  *  1. Wait for customer to answer via Zadarma SIP trunk.
- *  2. Create an Asterisk mixing bridge.
- *  3. Add the customer channel to the bridge.
- *  4. Originate a second SIP channel to VAPI's gateway (sip.vapi.ai).
- *  5. VAPI SIP leg enters Stasis → handleVapiBridgeLeg adds it to the bridge.
- *  6. Both parties are now bridged; VAPI runs the AI conversation.
+ *  2. Create an Asterisk mixing bridge (empty).
+ *  3. Originate VAPI SIP; when it enters Stasis, add VAPI then customer to the bridge.
+ *  4. Both parties bridged; VAPI runs the AI conversation.
  *  7. When either party hangs up, clean up bridge and finalize call record.
  */
 /** Parse VAPI_SIP_URI (sip:user@sip.vapi.ai) → PJSIP/user@trunk-vapi (see asterisk pjsip.conf). */
@@ -410,15 +422,7 @@ async function handleVapiOutbound(
     return;
   }
 
-  // Add customer to bridge
-  const addCustRes = await ariPost(`/bridges/${bridgeId}/addChannel`, { channel: customerChannel.id });
-  if (!addCustRes.ok) {
-    console.error(`[VAPI-Bridge] addChannel(customer) failed: ${addCustRes.status}`);
-    await ariDelete(`/bridges/${bridgeId}`);
-    await finalizeCall(callId, { failureReason: "BRIDGE_CUSTOMER_ADD_FAILED" });
-    await customerChannel.hangup().catch(() => undefined);
-    return;
-  }
+  pendingBridgeCustomers.set(bridgeId, customerChannel.id);
 
   // ── Originate VAPI SIP leg ──────────────────────────────────────────────
   // VAPI SIP URI: sip:username@sip.vapi.ai  (no auth required)
@@ -427,6 +431,7 @@ async function handleVapiOutbound(
   const vapiSipUri = process.env.VAPI_SIP_URI ?? "";
   if (!vapiSipUri) {
     console.error("[VAPI-Bridge] VAPI_SIP_URI not set in environment (e.g. sip:crm-asterisk-bridge@sip.vapi.ai)");
+    pendingBridgeCustomers.delete(bridgeId);
     await ariDelete(`/bridges/${bridgeId}`);
     await finalizeCall(callId, { failureReason: "VAPI_NOT_CONFIGURED" });
     await customerChannel.hangup().catch(() => undefined);
@@ -452,6 +457,7 @@ async function handleVapiOutbound(
     const errText = await origRes.text();
     console.error(`[VAPI-Bridge] VAPI SIP originate failed ${origRes.status}: ${errText}`);
     pendingVapiBridges.delete(vapiChanId);
+    pendingBridgeCustomers.delete(bridgeId);
     await ariDelete(`/bridges/${bridgeId}`);
     await finalizeCall(callId, { failureReason: `VAPI_ORIGINATE_FAILED: ${origRes.status}` });
     await customerChannel.hangup().catch(() => undefined);
@@ -487,6 +493,7 @@ async function handleVapiOutbound(
 
   // ── Cleanup ─────────────────────────────────────────────────────────────
   pendingVapiBridges.delete(vapiChanId);
+  pendingBridgeCustomers.delete(bridgeId);
   await ariDelete(`/bridges/${bridgeId}`);
   await ariDelete(`/channels/${vapiChanId}`);
   await customerChannel.hangup().catch(() => undefined);
