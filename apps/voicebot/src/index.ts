@@ -167,6 +167,16 @@ async function startPlayback(channelId: string, mediaUrl: string): Promise<strin
   }
 }
 
+/** Short tone so callee does not hear multi-second silence while LLM+TTS runs (docker: asterisk/sounds/system). */
+async function playConnectingTone(channelId: string): Promise<void> {
+  const uri = process.env.VOICEBOT_CONNECTING_SOUND_URI ?? "sound:system/crm-connecting";
+  const ms = Number(process.env.VOICEBOT_CONNECTING_SOUND_MS ?? "400");
+  const waitMs = Number.isFinite(ms) && ms > 0 ? ms : 400;
+  const id = await startPlayback(channelId, uri);
+  if (!id) console.warn(`[VoiceBot] connecting tone missing or failed (${uri}); add asterisk/sounds/system mount)`);
+  await new Promise((r) => setTimeout(r, waitMs));
+}
+
 /** Stops a running playback by ID. */
 async function stopPlayback(playbackId: string): Promise<void> {
   const auth = `Basic ${Buffer.from(`${ariUser()}:${ariPass()}`).toString("base64")}`;
@@ -385,6 +395,9 @@ async function handleVapiOutbound(
     return;
   }
   console.log(`[VAPI-Bridge] call=${callId} answered`);
+  await customerChannel.answer().catch(() => undefined);
+  await playConnectingTone(customerChannel.id);
+
   await patchStatus(callId, "ANSWERED");
 
   // ── Create mixing bridge ────────────────────────────────────────────────
@@ -523,7 +536,6 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
     }
     const row = await internalInbound(phone, prompt.id);
     callId = row.id;
-    await channel.answer().catch(() => undefined);
   } else {
     // Outbound: do NOT block on prompt-service before ringing. If prompt load
     // failed pre-answer, we used to hang up immediately — user hears no ringback
@@ -553,6 +565,9 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
   }
 
   if (!prompt) return;
+
+  await channel.answer().catch(() => undefined);
+  await playConnectingTone(channel.id);
 
   await patchStatus(callId, "ANSWERED");
 

@@ -61,6 +61,7 @@ services:
       - ./asterisk/config/pjsip.conf:/etc/asterisk/pjsip.conf:ro
       - ./asterisk/recordings:/var/spool/asterisk/recording
       - ./apps/tts-service/tmp-audio:/var/lib/asterisk/sounds/crm-tts:ro
+      - ./asterisk/sounds/system:/var/lib/asterisk/sounds/system:ro
 
   gateway:
     build:
