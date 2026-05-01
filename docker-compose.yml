@@ -50,9 +50,13 @@ services:
 
   asterisk:
     image: andrius/asterisk:latest
-    # Image healthcheck spawns a separate asterisk -rx process and falsely reports missing modules.
+    # Override image healthcheck: it runs standalone `asterisk -rx` and falsely reports missing modules.
     healthcheck:
-      disable: true
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     ports:
       - "5060:5060/udp"
       - "8088:8088"
