@@ -1,11 +1,23 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from "@nestjs/common";
 import { IsIn, IsInt, IsOptional, IsString, Matches, Max, Min } from "class-validator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { CallsService } from "./calls.service";
 import { S3Service } from "./s3.service";
 import { CallDirection, CallStatus } from "@crm/db";
 
+/** Strips spaces/punct; keeps leading + for @Matches. */
+function normalizePhoneField(v: unknown): string {
+  if (typeof v !== "string") return "";
+  const t = v.trim();
+  if (!t) return "";
+  const hasPlus = t.startsWith("+");
+  const digits = t.replace(/\D/g, "");
+  if (!digits) return "";
+  return hasPlus ? `+${digits}` : digits;
+}
+
 class OutboundDto {
+  @Transform(({ value }) => normalizePhoneField(value))
   @IsString()
   @Matches(/^\+?[0-9]{10,15}$/)
   phone!: string;
