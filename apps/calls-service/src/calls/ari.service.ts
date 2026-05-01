@@ -168,6 +168,7 @@ export class AriService implements OnModuleDestroy {
         body: JSON.stringify({
           variables: {
             CRM_CALL_ID: callId,
+            __CRM_CALL_ID: callId,
           },
         }),
       });
