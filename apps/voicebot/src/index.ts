@@ -233,7 +233,12 @@ async function comfortLoopWhile<T>(
         continue;
       }
       fails = 0;
-      await waitForPlaybackFinished(client, id, 120_000);
+      // Cap: if PlaybackFinished is missing (ARI quirk), do not block minutes per loop.
+      const segMs = Math.min(
+        60_000,
+        Math.max(2_000, Number(process.env.VOICEBOT_COMFORT_SEGMENT_MAX_MS ?? "12000") || 12_000),
+      );
+      await waitForPlaybackFinished(client, id, segMs);
     }
     if (state.currentPb) {
       await stopPlayback(state.currentPb).catch(() => undefined);
