@@ -50,6 +50,9 @@ services:
 
   asterisk:
     image: andrius/asterisk:latest
+    # Image healthcheck spawns a separate asterisk -rx process and falsely reports missing modules.
+    healthcheck:
+      disable: true
     ports:
       - "5060:5060/udp"
       - "8088:8088"

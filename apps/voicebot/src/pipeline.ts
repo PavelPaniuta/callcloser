@@ -43,8 +43,8 @@ export async function runTurn(
   userMessage: string,
 ): Promise<string> {
   const client = getOpenAI();
-  const keyPreview = process.env.OPENAI_API_KEY?.slice(0, 20) ?? "MISSING";
-  console.log(`[LLM] key="${keyPreview}..." prompt="${ctx.systemPrompt?.slice(0, 60)}" msg="${userMessage?.slice(0, 40)}"`);
+  const cfg = client ? "configured" : "MISSING_OPENAI_API_KEY";
+  console.log(`[LLM] ${cfg} prompt="${ctx.systemPrompt?.slice(0, 60)}" msg="${userMessage?.slice(0, 40)}"`);
 
   if (client) {
     try {

@@ -74,6 +74,9 @@ export class AriService implements OnModuleDestroy {
         opts.callerId = cid.includes("<") ? cid : `"CRM" <${cid}>`;
       }
       const channel = await client.channels.originate(opts);
+      this.log.log(
+        `ARI originate ok callId=${callId} channel=${channel.id} endpoint=${endpoint} direction=${direction}`,
+      );
       return {
         uniqueId: channel.id,
         channelId: channel.id,
