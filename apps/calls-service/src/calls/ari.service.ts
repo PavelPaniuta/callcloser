@@ -70,7 +70,11 @@ export class AriService implements OnModuleDestroy {
         );
         return { uniqueId: httpDial.id, channelId: httpDial.id };
       }
-      this.log.warn(`Dialplan originate failed; falling back to direct PJSIP + Stasis`);
+      /** Прямий PJSIP+Stasis давав Up/Stasis до реального кільця GSM — у CRM «дзвінок», телефон мовчить. */
+      this.log.warn(
+        `Dialplan originate failed — not using PSTN fallback. Fix ARI/dialplan or set ASTERISK_OUTBOUND_USE_DIALPLAN=false for legacy debug only.`,
+      );
+      return null;
     }
 
     const endpoint = await this.resolveEndpoint(phone);
