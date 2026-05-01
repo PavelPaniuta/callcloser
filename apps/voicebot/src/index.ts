@@ -403,7 +403,7 @@ function waitForAnswer(
   const outbound = opts.outbound ?? false;
   const stableMs = Math.max(
     400,
-    Number(process.env.VOICEBOT_OUTBOUND_ANSWER_STABLE_MS ?? "1000") || 1000,
+    Number(process.env.VOICEBOT_OUTBOUND_ANSWER_STABLE_MS ?? "700") || 700,
   );
 
   return new Promise((resolve) => {

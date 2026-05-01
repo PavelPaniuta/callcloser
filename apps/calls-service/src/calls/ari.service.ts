@@ -147,14 +147,31 @@ export class AriService implements OnModuleDestroy {
   }
 
   private async resolveEndpoint(phone: string): Promise<string> {
-    // ASTERISK_OUTBOUND_TRUNK — just the trunk/endpoint name, e.g. "trunk-zadarma"
-    // Avoid ASTERISK_OUTBOUND_ENDPOINT with ${phone} template because PM2 dotenv
-    // expands ${phone} to empty string at startup, producing PJSIP/@trunk-zadarma.
+    // ASTERISK_OUTBOUND_TRUNK — PJSIP endpoint name (auth / AOR), e.g. trunk-zadarma
+    // Avoid ASTERISK_OUTBOUND_ENDPOINT with ${phone} template — PM2/dotenv expands ${phone} to empty.
     const trunk =
       process.env.ASTERISK_OUTBOUND_TRUNK ||
       (await this.resolveDbTrunk()) ||
       "trunk-zadarma";
-    return `PJSIP/${phone}@${trunk}`;
+    const digits = phone.replace(/\D/g, "");
+    if (!digits) {
+      this.log.warn(`resolveEndpoint: no digits in "${phone}", fallback PJSIP literal`);
+      return `PJSIP/${phone}@${trunk}`;
+    }
+
+    // Same dial string as asterisk/config/extensions.conf [dial-out]:
+    //   Dial(PJSIP/sip:${EXTEN}@pbx.zadarma.com)
+    // Full SIP URI in Request-URI; auth via pjsip.conf default_outbound_endpoint=trunk-zadarma.
+    // Short form PJSIP/<num>@trunk sometimes provokes Anonymous / wrong INVITE on Zadarma.
+    const style = (process.env.ASTERISK_OUTBOUND_DIAL_STYLE ?? "sip-uri").toLowerCase();
+    if (style === "endpoint" || style === "short" || style === "trunk") {
+      return `PJSIP/${digits}@${trunk}`;
+    }
+    const sipHost =
+      process.env.ZADARMA_PBX_HOST?.trim() ||
+      process.env.ASTERISK_OUTBOUND_SIP_HOST?.trim() ||
+      "pbx.zadarma.com";
+    return `PJSIP/sip:${digits}@${sipHost}`;
   }
 
   private async resolveDbTrunk(): Promise<string | null> {
