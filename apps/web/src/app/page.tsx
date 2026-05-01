@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { io, Socket } from "socket.io-client";
-import { api, getToken } from "@/lib/api";
+import { api } from "@/lib/api";
 
 type Contact = {
   id: string;
@@ -83,12 +83,7 @@ export default function ContactsPage() {
     setActionBusy(true);
     setErr(null);
     try {
-      const token = getToken();
-      const r = await fetch(`${gatewayWs}/api/contacts/${contactId}`, {
-        method: "DELETE",
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      });
-      if (!r.ok) throw new Error(await r.text());
+      await api(`/api/contacts/${contactId}`, { method: "DELETE" });
       const [contacts, callsResp] = await Promise.all([
         api<Contact[]>("/api/contacts"),
         api<Call[]>("/api/calls").catch(() => []),

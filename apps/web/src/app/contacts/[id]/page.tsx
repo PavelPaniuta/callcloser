@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
-import { api, getToken } from "@/lib/api";
+import { api } from "@/lib/api";
 
 type Call = {
   id: string;
@@ -69,57 +69,48 @@ export default function ContactDetailPage() {
     if (!data) return;
     setActionBusy(true);
     setErr(null);
-    const token = getToken();
-    const r = await fetch(`${gatewayWs}/api/calls/outbound`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        phone: data.phone,
-        contactId: data.id,
-        promptVersionId: promptId || undefined,
-      }),
-    });
-    if (!r.ok) {
-      setErr(await r.text());
+    try {
+      await api("/api/calls/outbound", {
+        method: "POST",
+        body: JSON.stringify({
+          phone: data.phone,
+          contactId: data.id,
+          promptVersionId: promptId || undefined,
+        }),
+      });
+      const next = await api<ContactDetail>(`/api/contacts/${id}`);
+      setData(next);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    } finally {
       setActionBusy(false);
-      return;
     }
-    void api<ContactDetail>(`/api/contacts/${id}`).then(setData);
-    setActionBusy(false);
   }
 
   async function cancelCall(callId: string) {
     setActionBusy(true);
     setErr(null);
-    const token = getToken();
-    const r = await fetch(`${gatewayWs}/api/calls/${callId}/cancel`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ reason: "Cancelled by user from CRM UI" }),
-    });
-    if (!r.ok) {
-      setErr(await r.text());
+    try {
+      await api(`/api/calls/${callId}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "Cancelled by user from CRM UI" }),
+      });
+      const next = await api<ContactDetail>(`/api/contacts/${id}`);
+      setData(next);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    } finally {
       setActionBusy(false);
-      return;
     }
-    void api<ContactDetail>(`/api/contacts/${id}`).then(setData);
-    setActionBusy(false);
   }
 
   async function openRecording(callId: string) {
-    const token = getToken();
-    const r = await fetch(`${gatewayWs}/api/recordings/${callId}/url`, {
-      headers: token ? { authorization: `Bearer ${token}` } : {},
-    });
-    if (!r.ok) return;
-    const j = (await r.json()) as { url: string | null };
-    if (j.url) window.open(j.url, "_blank");
+    try {
+      const j = await api<{ url: string | null }>(`/api/recordings/${callId}/url`);
+      if (j.url) window.open(j.url, "_blank");
+    } catch {
+      /* ignore */
+    }
   }
 
   async function clearHistory() {
@@ -127,12 +118,7 @@ export default function ContactDetailPage() {
     setActionBusy(true);
     setErr(null);
     try {
-      const token = getToken();
-      const r = await fetch(`${gatewayWs}/api/calls?contactId=${id}`, {
-        method: "DELETE",
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      });
-      if (!r.ok) throw new Error(await r.text());
+      await api(`/api/calls?contactId=${encodeURIComponent(id)}`, { method: "DELETE" });
       const next = await api<ContactDetail>(`/api/contacts/${id}`);
       setData(next);
     } catch (e) {
@@ -147,12 +133,7 @@ export default function ContactDetailPage() {
     setActionBusy(true);
     setErr(null);
     try {
-      const token = getToken();
-      const r = await fetch(`${gatewayWs}/api/calls/${callId}`, {
-        method: "DELETE",
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      });
-      if (!r.ok) throw new Error(await r.text());
+      await api(`/api/calls/${callId}`, { method: "DELETE" });
       const next = await api<ContactDetail>(`/api/contacts/${id}`);
       setData(next);
     } catch (e) {
@@ -167,12 +148,7 @@ export default function ContactDetailPage() {
     setActionBusy(true);
     setErr(null);
     try {
-      const token = getToken();
-      const r = await fetch(`${gatewayWs}/api/contacts/${id}`, {
-        method: "DELETE",
-        headers: token ? { authorization: `Bearer ${token}` } : {},
-      });
-      if (!r.ok) throw new Error(await r.text());
+      await api(`/api/contacts/${id}`, { method: "DELETE" });
       router.push("/");
     } catch (e) {
       setErr(String((e as Error).message));
