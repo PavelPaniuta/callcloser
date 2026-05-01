@@ -186,6 +186,75 @@ async function stopPlayback(playbackId: string): Promise<void> {
   }).catch(() => undefined);
 }
 
+function waitForPlaybackFinished(client: AriClient, playbackId: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, timeoutMs);
+
+    const handler = (_: unknown, pb: { id?: string }) => {
+      if (pb?.id === playbackId) {
+        cleanup();
+        resolve();
+      }
+    };
+
+    function cleanup() {
+      clearTimeout(t);
+      client.removeListener("PlaybackFinished" as never, handler as never);
+    }
+
+    client.on("PlaybackFinished" as never, handler as never);
+  });
+}
+
+/**
+ * Outbound callee often hangs up during multi-second GPT+TTS prep after a short beep.
+ * Loop the connecting sound until the greeting text is ready, then stop — next `speak()` replaces media.
+ */
+async function comfortLoopWhile<T>(
+  client: AriClient,
+  channelId: string,
+  soundUri: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const state = { stop: false, currentPb: null as string | null };
+
+  const spin = async () => {
+    let fails = 0;
+    while (!state.stop) {
+      const id = await startPlayback(channelId, soundUri);
+      state.currentPb = id;
+      if (!id) {
+        fails++;
+        if (fails >= 8 || state.stop) break;
+        await new Promise((r) => setTimeout(r, 250));
+        continue;
+      }
+      fails = 0;
+      await waitForPlaybackFinished(client, id, 120_000);
+    }
+    if (state.currentPb) {
+      await stopPlayback(state.currentPb).catch(() => undefined);
+      state.currentPb = null;
+    }
+  };
+
+  const spinP = spin();
+
+  try {
+    return await fn();
+  } finally {
+    state.stop = true;
+    if (state.currentPb) {
+      await stopPlayback(state.currentPb).catch(() => undefined);
+      state.currentPb = null;
+    }
+    await spinP.catch(() => undefined);
+  }
+}
+
 async function speak(
   client: AriClient,
   channel: Channel,
@@ -582,7 +651,10 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
 
   if (!prompt) return;
 
-  await channel.answer().catch(() => undefined);
+  // Outbound leg is already Up when the callee answers; extra answer() can confuse some SIP paths.
+  if (direction === "inbound") {
+    await channel.answer().catch(() => undefined);
+  }
 
   let hangupDetected = false;
   channel.once("StasisEnd" as never, () => {
@@ -594,12 +666,12 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
   const history: Array<{ role: "user" | "assistant"; content: string }> = [];
   let turnCount = 0;
 
-  // Greeting LLM + short connecting tone in parallel — less dead air before first speech.
   const voiceCtx = { systemPrompt: prompt.systemPrompt, history };
-  const [greeting] = await Promise.all([
-    runTurn(voiceCtx, "__greeting__"),
-    playConnectingTone(channel.id),
-  ]);
+  const connectingUri = process.env.VOICEBOT_CONNECTING_SOUND_URI ?? "sound:system/crm-connecting";
+  const greeting =
+    direction === "outbound"
+      ? await comfortLoopWhile(client, channel.id, connectingUri, () => runTurn(voiceCtx, "__greeting__"))
+      : await Promise.all([runTurn(voiceCtx, "__greeting__"), playConnectingTone(channel.id)]).then(([g]) => g);
 
   if (hangupDetected) {
     console.log(`[VoiceBot] call=${callId} remote hangup before greeting playback`);
