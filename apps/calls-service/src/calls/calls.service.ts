@@ -188,10 +188,10 @@ export class CallsService {
       return this.get(call.id);
     }
 
+    /** Залишаємо QUEUED: RINGING одразу після originate змушував CRM показувати «гудки», хоча PSTN ще може не дзвонити. ANSWERED виставить voicebot. */
     await prisma.call.update({
       where: { id: call.id },
       data: {
-        status: CallStatus.RINGING,
         asteriskUniqueId: orig.uniqueId,
         channelId: orig.channelId,
         startedAt: new Date(),

@@ -796,9 +796,12 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
 
   const voiceCtx = { systemPrompt: prompt.systemPrompt, history };
   const connectingUri = process.env.VOICEBOT_CONNECTING_SOUND_URI ?? "sound:system/crm-connecting";
+  /** Після Dial(answer)+postdial абонент уже зняв трубку — comfortLoop звучить як нескінченні «гудки». */
   const greeting =
     direction === "outbound"
-      ? await comfortLoopWhile(client, channel.id, connectingUri, () => runTurn(voiceCtx, "__greeting__"))
+      ? postDialHumanAnswered
+        ? await runTurn(voiceCtx, "__greeting__")
+        : await comfortLoopWhile(client, channel.id, connectingUri, () => runTurn(voiceCtx, "__greeting__"))
       : await Promise.all([runTurn(voiceCtx, "__greeting__"), playConnectingTone(channel.id)]).then(([g]) => g);
 
   if (hangupDetected) {
