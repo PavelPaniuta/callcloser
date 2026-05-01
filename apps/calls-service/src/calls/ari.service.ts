@@ -159,19 +159,17 @@ export class AriService implements OnModuleDestroy {
       return `PJSIP/${phone}@${trunk}`;
     }
 
-    // Same dial string as asterisk/config/extensions.conf [dial-out]:
-    //   Dial(PJSIP/sip:${EXTEN}@pbx.zadarma.com)
-    // Full SIP URI in Request-URI; auth via pjsip.conf default_outbound_endpoint=trunk-zadarma.
-    // Short form PJSIP/<num>@trunk sometimes provokes Anonymous / wrong INVITE on Zadarma.
-    const style = (process.env.ASTERISK_OUTBOUND_DIAL_STYLE ?? "sip-uri").toLowerCase();
-    if (style === "endpoint" || style === "short" || style === "trunk") {
-      return `PJSIP/${digits}@${trunk}`;
+    // Default: PJSIP/<digits>@<trunk> (works with ARI originate + Zadarma on this stack).
+    // Optional: ASTERISK_OUTBOUND_DIAL_STYLE=sip-uri — some installs need it; here it returned "Allocation failed".
+    const style = (process.env.ASTERISK_OUTBOUND_DIAL_STYLE ?? "endpoint").toLowerCase();
+    if (style === "sip-uri" || style === "zadarma") {
+      const sipHost =
+        process.env.ZADARMA_PBX_HOST?.trim() ||
+        process.env.ASTERISK_OUTBOUND_SIP_HOST?.trim() ||
+        "pbx.zadarma.com";
+      return `PJSIP/sip:${digits}@${sipHost}`;
     }
-    const sipHost =
-      process.env.ZADARMA_PBX_HOST?.trim() ||
-      process.env.ASTERISK_OUTBOUND_SIP_HOST?.trim() ||
-      "pbx.zadarma.com";
-    return `PJSIP/sip:${digits}@${sipHost}`;
+    return `PJSIP/${digits}@${trunk}`;
   }
 
   private async resolveDbTrunk(): Promise<string | null> {
