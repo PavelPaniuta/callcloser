@@ -48,7 +48,11 @@ services:
       exit 0;
       "
 
+  # На VPS можна не піднімати: docker compose up -d (без профілю asterisk).
+  # Локально або коли Asterisk на сервері: docker compose --profile asterisk up -d
   asterisk:
+    profiles:
+      - asterisk
     image: andrius/asterisk:latest
     # Override image healthcheck: it runs standalone `asterisk -rx` and falsely reports missing modules.
     healthcheck:
@@ -154,7 +158,6 @@ services:
       PROMPT_SERVICE_URL: http://prompt-service:3013
       INTERNAL_API_SECRET: dev-internal-secret
     depends_on:
-      - asterisk
       - prompt-service
       - calls-service
 

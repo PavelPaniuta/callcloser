@@ -31,5 +31,7 @@ pm2 reload all
 pm2 status
 
 echo "✅ Update complete"
-echo "Tip: після змін asterisk/config:"
+echo "Tip: Asterisk за замовчуванням вимкнено (profile asterisk). На сервері: docker compose up -d"
+echo "Tip: з профілем Asterisk: docker compose --profile asterisk up -d"
+echo "Tip: після змін asterisk/config (якщо контейнер піднятий):"
 echo "  cd $APP_DIR && docker compose exec -T asterisk asterisk -rx \"dialplan reload\" && docker compose exec -T asterisk asterisk -rx \"pjsip reload\""
