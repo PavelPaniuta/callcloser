@@ -154,14 +154,12 @@ export class CallsService {
 
     await this.transition(call.id, CallStatus.QUEUED);
 
-    // ── VAPI API path: VAPI dials customer directly via its own telephony ──
-    if (input.engine === "vapi") {
-      return this.createOutboundVapi(call.id, input.phone);
-    }
-
-    // ── Asterisk ARI path: Asterisk dials via Zadarma + local AI pipeline ──
+    // ── Asterisk ARI path (оба режима) ────────────────────────────────────
+    // "asterisk": Asterisk звонит через Zadarma, наш пайплайн ASR/GPT/TTS
+    // "vapi":     Asterisk звонит через Zadarma, при ответе SIP-мост к VAPI AI
+    const direction = input.engine === "vapi" ? "outbound-vapi" : "outbound";
     const dialPhone = this.normalizePhoneForZadarmaTrunk(input.phone);
-    const orig = await this.ari.originateOutbound(dialPhone, call.id, "outbound");
+    const orig = await this.ari.originateOutbound(dialPhone, call.id, direction);
     if (!orig?.uniqueId) {
       await prisma.call.update({
         where: { id: call.id },
@@ -180,44 +178,6 @@ export class CallsService {
       },
     });
     return this.get(call.id);
-  }
-
-  private async createOutboundVapi(callId: string, phone: string) {
-    // Fetch active system prompt for inline VAPI assistant
-    let systemPrompt: string | undefined;
-    try {
-      const promptUrl = process.env.PROMPT_SERVICE_URL ?? "http://localhost:3013";
-      const r = await fetch(`${promptUrl}/prompts/active`);
-      if (r.ok) {
-        const p = (await r.json()) as { systemPrompt?: string };
-        systemPrompt = p.systemPrompt;
-      }
-    } catch (e: unknown) {
-      this.log.warn(`VAPI: failed to fetch prompt: ${(e as Error)?.message ?? e}`);
-    }
-
-    const result = await this.vapi.originateCall(phone, callId, {
-      systemPrompt,
-      metadata: { crm_call_id: callId },
-    });
-
-    if (!result) {
-      await prisma.call.update({
-        where: { id: callId },
-        data: { status: CallStatus.FAILED, failureReason: "VAPI originate failed" },
-      });
-      return this.get(callId);
-    }
-
-    await prisma.call.update({
-      where: { id: callId },
-      data: {
-        status: CallStatus.RINGING,
-        asteriskUniqueId: result.callId,
-        startedAt: new Date(),
-      },
-    });
-    return this.get(callId);
   }
 
   async createInboundStub(callerPhone: string, promptVersionId?: string) {

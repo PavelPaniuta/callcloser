@@ -395,11 +395,12 @@ async function handleVapiOutbound(
   }
 
   // ── Originate VAPI SIP leg ──────────────────────────────────────────────
-  // VAPI's SIP gateway: PJSIP/{publicKey}@trunk-vapi
-  // The public key identifies your VAPI account; VAPI uses the configured assistant.
-  const vapiPublicKey = process.env.VAPI_PUBLIC_KEY ?? process.env.VAPI_ASSISTANT_ID ?? "";
-  if (!vapiPublicKey) {
-    console.error("[VAPI-Bridge] VAPI_PUBLIC_KEY not set in environment");
+  // VAPI SIP URI: sip:username@sip.vapi.ai  (no auth required)
+  // Set VAPI_SIP_URI=sip:crm-asterisk-bridge@sip.vapi.ai in .env
+  // (create in VAPI dashboard: Phone Numbers → + → Provider: VAPI → choose assistant)
+  const vapiSipUri = process.env.VAPI_SIP_URI ?? "";
+  if (!vapiSipUri) {
+    console.error("[VAPI-Bridge] VAPI_SIP_URI not set in environment (e.g. sip:crm-asterisk-bridge@sip.vapi.ai)");
     await ariDelete(`/bridges/${bridgeId}`);
     await finalizeCall(callId, { failureReason: "VAPI_NOT_CONFIGURED" });
     await customerChannel.hangup().catch(() => undefined);
@@ -410,8 +411,9 @@ async function handleVapiOutbound(
   pendingVapiBridges.set(vapiChanId, bridgeId);
 
   const appName = process.env.ASTERISK_ARI_APP ?? "crm-voice";
+  // PJSIP/sip:username@sip.vapi.ai — no trunk-vapi auth needed, VAPI accepts unauthenticated SIP
   const origRes = await ariPost(`/channels/${vapiChanId}`, {
-    endpoint: `PJSIP/${vapiPublicKey}@trunk-vapi`,
+    endpoint: `PJSIP/${vapiSipUri}`,
     app: appName,
     appArgs: `vapi-bridge-leg,${bridgeId}`,
     callerId: `"AI Assistant" <crm-bridge>`,
