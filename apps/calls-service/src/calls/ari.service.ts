@@ -55,12 +55,26 @@ export class AriService implements OnModuleDestroy {
   ): Promise<{ uniqueId?: string; channelId?: string } | null> {
     if (!this.isEnabled()) return null;
 
-    const endpoint = await this.resolveEndpoint(phone);
-    const appArgs = [direction, phone, callId, ...extraArgs].join(",");
+    const digits = phone.replace(/\D/g, "");
     const rawCid =
       process.env.ASTERISK_OUTBOUND_CALLER_ID?.trim() ||
       process.env.ZADARMA_CALLER_ID?.trim();
     const callerId = rawCid ? this.normalizeSipCallerId(rawCid) : undefined;
+
+    /** Dialplan Dial() до відповіді, потім Stasis — без фальшивого «Up» до GSM. */
+    if (this.useDialplanOriginate() && digits && direction === "outbound") {
+      const httpDial = await this.originateOutboundDialplanHttp(digits, callId, callerId);
+      if (httpDial) {
+        this.log.log(
+          `ARI originate ok (dialplan→Stasis) callId=${callId} channel=${httpDial.id} extension=${digits} direction=${direction} callerId=${callerId ?? "default"}`,
+        );
+        return { uniqueId: httpDial.id, channelId: httpDial.id };
+      }
+      this.log.warn(`Dialplan originate failed; falling back to direct PJSIP + Stasis`);
+    }
+
+    const endpoint = await this.resolveEndpoint(phone);
+    const appArgs = [direction, phone, callId, ...extraArgs].join(",");
 
     const http = await this.originateOutboundHttp(endpoint, appArgs, callerId);
     if (http) {
@@ -107,6 +121,60 @@ export class AriService implements OnModuleDestroy {
     const style = (process.env.ASTERISK_OUTBOUND_CALLER_ID_STYLE ?? "digits").toLowerCase();
     if (style === "named" || style === "crm") return `"CRM" <${digits}>`;
     return digits;
+  }
+
+  /** default true — див. extensions.conf [crm-ari-outbound] */
+  private useDialplanOriginate(): boolean {
+    const v = process.env.ASTERISK_OUTBOUND_USE_DIALPLAN;
+    if (v === undefined || v.trim() === "") return true;
+    return v === "1" || v.toLowerCase() === "true";
+  }
+
+  /**
+   * ARI без app: канал йде в dialplan → Dial(PJSIP/…) блокує до відповіді абонента → Stasis(...,postdial).
+   */
+  private async originateOutboundDialplanHttp(
+    digits: string,
+    callId: string,
+    callerId?: string,
+  ): Promise<{ id: string } | null> {
+    const base = this.url.replace(/\/$/, "");
+    if (!base) return null;
+    const auth = Buffer.from(`${this.user}:${this.pass}`).toString("base64");
+    const timeoutSec = Math.min(
+      300,
+      Math.max(30, Number(process.env.ASTERISK_ARI_ORIGINATE_TIMEOUT_SEC ?? 120) || 120),
+    );
+    const context =
+      process.env.ASTERISK_OUTBOUND_DIALPLAN_CONTEXT?.trim() || "crm-ari-outbound";
+    const body: Record<string, unknown> = {
+      extension: digits,
+      context,
+      priority: 1,
+      timeout: timeoutSec,
+      formats: "ulaw,alaw",
+      variables: {
+        CRM_CALL_ID: callId,
+      },
+    };
+    if (callerId) body.callerId = callerId;
+    try {
+      const res = await fetch(`${base}/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        this.log.warn(`ARI HTTP originate (dialplan) ${res.status}: ${await res.text()}`);
+        return null;
+      }
+      const j = (await res.json()) as { id?: string };
+      if (!j.id) return null;
+      return { id: j.id };
+    } catch (e: unknown) {
+      this.log.warn(`ARI HTTP originate (dialplan) error: ${(e as Error)?.message ?? e}`);
+      return null;
+    }
   }
 
   /** Prefer HTTP originate: explicit timeout, same JSON Asterisk documents (ari-client omits timeout). */

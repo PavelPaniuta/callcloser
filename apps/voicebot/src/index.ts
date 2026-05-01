@@ -702,6 +702,8 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
   const direction = args[0] ?? "unknown";
   const arg1 = args[1] ?? "";      // phone (outbound) OR bridgeId (vapi-bridge-leg)
   const arg2 = args[2] ?? "";      // callId (outbound)
+  /** extensions.conf Stasis(...,postdial) після Dial ANSWER — абонент уже підняв трубку */
+  const postDialHumanAnswered = args[3] === "postdial";
 
   // ── VAPI bridge leg: second channel (to VAPI SIP) entered Stasis ────────
   if (direction === "vapi-bridge-leg") {
@@ -748,15 +750,19 @@ async function handleStasis(client: AriClient, channel: Channel, args: string[])
       await channel.hangup().catch(() => undefined);
       return;
     }
-    console.log(`[VoiceBot] call=${callId} waiting for answer...`);
-    const answered = await waitForAnswer(client, channel, { outbound: true });
-    if (!answered) {
-      console.log(`[VoiceBot] call=${callId} NO_ANSWER`);
-      await channel.hangup().catch(() => undefined);
-      await finalizeCall(callId, { failureReason: "NO_ANSWER" });
-      return;
+    if (postDialHumanAnswered) {
+      console.log(`[VoiceBot] call=${callId} Stasis after callee answered (Dial completed)`);
+    } else {
+      console.log(`[VoiceBot] call=${callId} waiting for answer...`);
+      const answered = await waitForAnswer(client, channel, { outbound: true });
+      if (!answered) {
+        console.log(`[VoiceBot] call=${callId} NO_ANSWER`);
+        await channel.hangup().catch(() => undefined);
+        await finalizeCall(callId, { failureReason: "NO_ANSWER" });
+        return;
+      }
+      console.log(`[VoiceBot] call=${callId} answered`);
     }
-    console.log(`[VoiceBot] call=${callId} answered`);
     prompt = await fetchActivePrompt().catch(() => null);
     if (!prompt) {
       console.error("[VoiceBot] No active prompt (outbound after answer)");
