@@ -41,3 +41,4 @@ pm2 reload all
 pm2 status
 
 echo "✅ Update complete"
+echo "Tip: Docker Compose v2+ is \`docker compose\` (plugin). Avoid legacy \`docker-compose\` 1.29 on this server — it breaks recreate on some images."
