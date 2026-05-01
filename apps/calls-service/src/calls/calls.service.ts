@@ -280,7 +280,8 @@ export class CallsService {
       }
     }
 
-    await this.finalizeEnded(id, { failureReason: reason });
+    this.log.log(`cancelCall ${id}: ${reason}`);
+    await this.finalizeEnded(id);
     return this.get(id);
   }
 
