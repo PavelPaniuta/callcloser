@@ -65,10 +65,11 @@ export class AriService implements OnModuleDestroy {
     if (this.useDialplanOriginate() && digits && direction === "outbound") {
       const httpDial = await this.originateOutboundDialplanHttp(digits, callId, callerId);
       if (httpDial) {
+        const hangupId = httpDial.name ?? httpDial.id;
         this.log.log(
-          `ARI originate ok (dialplan→Stasis) callId=${callId} channel=${httpDial.id} extension=${digits} direction=${direction} callerId=${callerId ?? "default"}`,
+          `ARI originate ok (dialplan→Stasis) callId=${callId} channel=${httpDial.id} name=${httpDial.name ?? "-"} hangupId=${hangupId} extension=${digits} direction=${direction} callerId=${callerId ?? "default"}`,
         );
-        return { uniqueId: httpDial.id, channelId: httpDial.id };
+        return { uniqueId: httpDial.id, channelId: hangupId };
       }
       /** Прямий PJSIP+Stasis давав Up/Stasis до реального кільця GSM — у CRM «дзвінок», телефон мовчить. */
       this.log.warn(
@@ -141,7 +142,7 @@ export class AriService implements OnModuleDestroy {
     digits: string,
     callId: string,
     callerId?: string,
-  ): Promise<{ id: string } | null> {
+  ): Promise<{ id: string; name?: string } | null> {
     const base = this.url.replace(/\/$/, "");
     if (!base) return null;
     const auth = Buffer.from(`${this.user}:${this.pass}`).toString("base64");
@@ -183,9 +184,9 @@ export class AriService implements OnModuleDestroy {
         this.log.warn(`ARI HTTP originate (dialplan) ${res.status}: ${await res.text()}`);
         return null;
       }
-      const j = (await res.json()) as { id?: string };
+      const j = (await res.json()) as { id?: string; name?: string };
       if (!j.id) return null;
-      return { id: j.id };
+      return { id: j.id, name: j.name };
     } catch (e: unknown) {
       this.log.warn(`ARI HTTP originate (dialplan) error: ${(e as Error)?.message ?? e}`);
       return null;
