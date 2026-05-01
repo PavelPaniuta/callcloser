@@ -392,8 +392,9 @@ async function answerIfRinging(channel: Channel): Promise<void> {
 }
 
 /**
- * Outbound: never trust a single "Up" — early media / races. Require REST+WS observations
- * showing Up continuously for VOICEBOT_OUTBOUND_ANSWER_STABLE_MS (default 1000ms).
+ * Outbound: debounce Up (VOICEBOT_OUTBOUND_ANSWER_STABLE_MS). Optionally require Ring/Ringing
+ * before accepting Up — avoids "fake answer" when PSTN never alerted the handset (no missed call).
+ * Disable: VOICEBOT_OUTBOUND_REQUIRE_RING=0
  */
 function waitForAnswer(
   client: AriClient,
@@ -405,6 +406,10 @@ function waitForAnswer(
     400,
     Number(process.env.VOICEBOT_OUTBOUND_ANSWER_STABLE_MS ?? "700") || 700,
   );
+  const requireRing =
+    outbound &&
+    process.env.VOICEBOT_OUTBOUND_REQUIRE_RING !== "0" &&
+    process.env.VOICEBOT_OUTBOUND_REQUIRE_RING !== "false";
 
   return new Promise((resolve) => {
     const ch = channel as unknown as { state?: string };
@@ -417,6 +422,9 @@ function waitForAnswer(
     let pollIv: ReturnType<typeof setInterval> | undefined;
     /** First instant we saw continuous Up; reset on any non-Up. */
     let upSince = 0;
+    /** PSTN alerted — Ring/Ringing seen (not Dialing alone: some trunks go Dial→Up without real ring). */
+    let sawRing = false;
+    let skipUpLog = false;
 
     const cleanup = () => {
       clearTimeout(timer);
@@ -429,14 +437,33 @@ function waitForAnswer(
       if (done) return;
       done = true;
       cleanup();
+      if (!result && outbound && requireRing && !sawRing) {
+        console.warn(
+          `[waitForAnswer] channel=${channel.id} no answer: never saw Ring/Ringing (PSTN may not have rung the phone). Set VOICEBOT_OUTBOUND_REQUIRE_RING=0 to allow Up without ring.`,
+        );
+      }
       resolve(result);
     };
 
     const timer = setTimeout(() => finish(false), ANSWER_TIMEOUT_MS);
 
+    function noteState(state: string | null) {
+      if (state === "Ring" || state === "Ringing") sawRing = true;
+    }
+
     function observeState(state: string | null) {
+      noteState(state);
       if (state !== "Up") {
         upSince = 0;
+        return;
+      }
+      if (requireRing && !sawRing) {
+        if (!skipUpLog) {
+          skipUpLog = true;
+          console.warn(
+            `[waitForAnswer] channel=${channel.id} ignoring Up until Ring/Ringing is seen (outbound guard)`,
+          );
+        }
         return;
       }
       const now = Date.now();
@@ -450,6 +477,7 @@ function waitForAnswer(
     function stateHandler(_: unknown, ch2: Channel) {
       if (ch2.id !== channel.id) return;
       const s = (ch2 as unknown as { state?: string }).state;
+      noteState(s ?? null);
       if (s === "Up") {
         if (!outbound) finish(true);
         else observeState("Up");
@@ -469,9 +497,10 @@ function waitForAnswer(
     client.on("StasisEnd" as never, endHandler as never);
 
     if (outbound) {
+      const pollMs = requireRing && !sawRing ? 200 : 300;
       const poll = () => void fetchChannelState(channel.id).then((st) => observeState(st));
       poll();
-      pollIv = setInterval(poll, 300);
+      pollIv = setInterval(poll, pollMs);
     }
   });
 }
