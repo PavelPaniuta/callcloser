@@ -357,6 +357,19 @@ async function handleVapiBridgeLeg(channel: Channel, bridgeId: string): Promise<
  *  6. Both parties are now bridged; VAPI runs the AI conversation.
  *  7. When either party hangs up, clean up bridge and finalize call record.
  */
+/** Parse VAPI_SIP_URI (sip:user@sip.vapi.ai) → PJSIP/user@trunk-vapi (see asterisk pjsip.conf). */
+function buildVapiPjsipEndpoint(vapiSipUri: string): string {
+  const trunk = process.env.VAPI_PJSIP_TRUNK?.trim() || "trunk-vapi";
+  const m = vapiSipUri.trim().match(/^sip:([^@;\s]+)@([^;\s]+)/i);
+  if (m) return `PJSIP/${m[1]}@${trunk}`;
+  console.warn(
+    `[VAPI-Bridge] VAPI_SIP_URI should look like sip:user@sip.vapi.ai (got: ${vapiSipUri}); dialing via ${trunk} anyway`,
+  );
+  const tail = vapiSipUri.replace(/^sip:/i, "").trim();
+  const user = tail.includes("@") ? tail.slice(0, tail.indexOf("@")) : tail;
+  return `PJSIP/${user}@${trunk}`;
+}
+
 async function handleVapiOutbound(
   client: AriClient,
   customerChannel: Channel,
@@ -411,9 +424,12 @@ async function handleVapiOutbound(
   pendingVapiBridges.set(vapiChanId, bridgeId);
 
   const appName = process.env.ASTERISK_ARI_APP ?? "crm-voice";
-  // PJSIP/sip:username@sip.vapi.ai — no trunk-vapi auth needed, VAPI accepts unauthenticated SIP
+  // Must use PJSIP/<user>@trunk-vapi so INVITE goes to sip.vapi.ai (pjsip.conf), not via
+  // default_outbound_endpoint (trunk-zadarma). Raw PJSIP/sip:user@... often fails with ARI 500 "Allocation failed".
+  const vapiEndpoint = buildVapiPjsipEndpoint(vapiSipUri);
+  console.log(`[VAPI-Bridge] originate VAPI leg endpoint=${vapiEndpoint}`);
   const origRes = await ariPost(`/channels/${vapiChanId}`, {
-    endpoint: `PJSIP/${vapiSipUri}`,
+    endpoint: vapiEndpoint,
     app: appName,
     appArgs: `vapi-bridge-leg,${bridgeId}`,
     callerId: `"AI Assistant" <crm-bridge>`,
