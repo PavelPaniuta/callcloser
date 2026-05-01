@@ -147,10 +147,9 @@ export class AriService implements OnModuleDestroy {
     );
     const context =
       process.env.ASTERISK_OUTBOUND_DIALPLAN_CONTEXT?.trim() || "crm-ari-outbound";
+    /** ARI originate requires `endpoint`; use Local/exten@context to enter dialplan (not extension+context body fields). */
     const body: Record<string, unknown> = {
-      extension: digits,
-      context,
-      priority: 1,
+      endpoint: `Local/${digits}@${context}`,
       timeout: timeoutSec,
       formats: "ulaw,alaw",
       variables: {
